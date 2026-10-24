@@ -1,0 +1,35 @@
+{
+  "name": "civic-pulse",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CivicPulse - Mobile-first civic issue reporting and accountability platform",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "apps/*",
+    "workers/*"
+  ],
+  "scripts": {
+    "build": "npm run --workspaces --if-present build",
+    "test": "npm run --workspaces --if-present test",
+    "test:cov": "npm run --workspaces --if-present test:cov",
+    "lint": "npm run --workspaces --if-present lint",
+    "typecheck": "npm run --workspaces --if-present typecheck",
+    "clean": "npm run --workspaces --if-present clean",
+    "docker:up": "docker compose -f infrastructure/docker/docker-compose.yml up -d",
+    "docker:down": "docker compose -f infrastructure/docker/docker-compose.yml down",
+    "docker:logs": "docker compose -f infrastructure/docker/docker-compose.yml logs -f"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.10",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "dependencies": {
+    "@fastify/helmet": "^11.1.1"
+  }
+}

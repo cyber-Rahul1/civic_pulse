@@ -1,0 +1,22 @@
+{
+  "name": "@civic-pulse/event-dispatcher-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CivicPulse BullMQ Outbox Event Dispatcher Worker",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rimraf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@civic-pulse/contracts": "*",
+    "@civic-pulse/nest-common": "*",
+    "bullmq": "^5.34.11",
+    "ioredis": "^5.4.2"
+  },
+  "devDependencies": {
+    "@civic-pulse/tsconfig": "*",
+    "typescript": "^5.7.2",
+    "rimraf": "^6.0.1"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "extends": "@civic-pulse/tsconfig/react-native.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "baseUrl": "./"
+  },
+  "include": ["src/**/*"]
+}

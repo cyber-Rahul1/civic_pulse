@@ -1,0 +1,54 @@
+name: CivicPulse CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  validate:
+    name: Build, Lint and Test
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27018:27017
+        env:
+          MONGO_INITDB_ROOT_USERNAME: civic_admin
+          MONGO_INITDB_ROOT_PASSWORD: civic_dev_secret_password
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6380:6379
+        options: --requirepass redis_dev_secret_password
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck all workspaces
+        run: npm run typecheck
+
+      - name: Build packages and services
+        run: npm run build
+
+      - name: Run unit & integration tests
+        run: npm run test
+        env:
+          NODE_ENV: test
+          IDENTITY_DB_URI: mongodb://civic_admin:civic_dev_secret_password@localhost:27018/civic_identity?authSource=admin
+          REDIS_HOST: localhost
+          REDIS_PORT: 6380
+          REDIS_PASSWORD: redis_dev_secret_password
