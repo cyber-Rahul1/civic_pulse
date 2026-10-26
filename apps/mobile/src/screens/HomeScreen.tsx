@@ -89,10 +89,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [paginationError, setPaginationError] = useState<string | null>(null);
 
   const fetchHomeData = useCallback(async (isInitial = true) => {
     try {
-      setError(null);
+      if (isInitial) {
+        setError(null);
+      }
+      setPaginationError(null);
       const targetPage = isInitial ? 1 : page + 1;
       const [reportsData, unreadRes] = await Promise.all([
         apiClient.listReports({
@@ -128,6 +132,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     } catch (err: any) {
       if (isInitial) {
         setError(err?.message || 'Failed to load community reports');
+      } else {
+        setPaginationError(err?.message || 'Failed to load more reports. Tap to retry.');
       }
     } finally {
       setIsLoading(false);
@@ -472,6 +478,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     <ActivityIndicator size="small" color={colors.primary} />
                     <Text style={styles.footerLoaderText}>Loading more reports...</Text>
                   </View>
+                ) : paginationError ? (
+                  <TouchableOpacity
+                    style={styles.footerRetryButton}
+                    onPress={() => {
+                      setIsFetchingMore(true);
+                      fetchHomeData(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.footerRetryText}>⚠️ {paginationError}</Text>
+                  </TouchableOpacity>
                 ) : !hasMore && reports.length > 0 ? (
                   <View style={styles.endOfFeedContainer}>
                     <Text style={styles.endOfFeedText}>✓ You're all caught up on civic reports</Text>
@@ -837,6 +854,22 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.sm,
     color: colors.textSecondary,
     fontWeight: '500',
+  },
+  footerRetryButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginVertical: spacing.sm,
+    backgroundColor: '#FFFBEB',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  footerRetryText: {
+    fontSize: typography.sizes.sm,
+    color: '#B45309',
+    fontWeight: '600',
   },
   endOfFeedContainer: {
     alignItems: 'center',

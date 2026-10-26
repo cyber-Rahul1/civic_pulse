@@ -31,10 +31,14 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({
   const [hasMore, setHasMore] = useState(true);
   const [isMarkingAll, setIsMarkingAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paginationError, setPaginationError] = useState<string | null>(null);
 
   const fetchNotifications = useCallback(async (isInitial = true) => {
     try {
-      setError(null);
+      if (isInitial) {
+        setError(null);
+      }
+      setPaginationError(null);
       const targetPage = isInitial ? 1 : page + 1;
       const res = await apiClient.getNotifications(targetPage, 20);
       const newItems = res?.items || [];
@@ -57,6 +61,8 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({
     } catch (err: any) {
       if (isInitial) {
         setError(err?.message || 'Failed to load notifications');
+      } else {
+        setPaginationError(err?.message || 'Failed to load more updates. Tap to retry.');
       }
     } finally {
       setIsLoading(false);
@@ -198,6 +204,17 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({
                 <ActivityIndicator size="small" color={colors.primary} />
                 <Text style={styles.footerLoaderText}>Loading more updates...</Text>
               </View>
+            ) : paginationError ? (
+              <TouchableOpacity
+                style={styles.footerRetryButton}
+                onPress={() => {
+                  setIsFetchingMore(true);
+                  fetchNotifications(false);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.footerRetryText}>⚠️ {paginationError}</Text>
+              </TouchableOpacity>
             ) : !hasMore && notifications.length > 0 ? (
               <View style={styles.endOfFeedContainer}>
                 <Text style={styles.endOfFeedText}>✓ You're all caught up</Text>
@@ -325,6 +342,22 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.sm,
     color: colors.textSecondary,
     fontWeight: '500',
+  },
+  footerRetryButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginVertical: spacing.sm,
+    backgroundColor: '#FFFBEB',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  footerRetryText: {
+    fontSize: typography.sizes.sm,
+    color: '#B45309',
+    fontWeight: '600',
   },
   endOfFeedContainer: {
     alignItems: 'center',

@@ -55,11 +55,14 @@ export class NotificationsService {
     }
 
     const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+    const page = Math.max(1, Number(query.page) || 1);
+    const skip = !query.cursor && page > 1 ? (page - 1) * limit : 0;
 
     const [items, unreadCount, total] = await Promise.all([
       this.db.notifications
         .find(filter)
         .sort({ createdAt: -1 })
+        .skip(skip)
         .limit(limit + 1)
         .toArray(),
       this.db.notifications.countDocuments({ recipientUserId: userId, isRead: false }),

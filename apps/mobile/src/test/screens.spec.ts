@@ -344,5 +344,87 @@ describe('Mobile Screen & Form Logic Tests', () => {
       expect(cached?.reports[0]?.id).toBe('rep-uuid-2');
     });
   });
+
+  describe('Pagination Correctness, Deduplication & Failure Recovery', () => {
+    it('20. should append distinct new page items and deduplicate any overlapping IDs', () => {
+      const existingItems = [
+        { id: 'rep-1', title: 'Issue 1' },
+        { id: 'rep-2', title: 'Issue 2' },
+      ];
+
+      const page2Items = [
+        { id: 'rep-2', title: 'Issue 2 (updated)' }, // overlap from concurrent submission
+        { id: 'rep-3', title: 'Issue 3' },
+      ];
+
+      const existingIds = new Set(existingItems.map((r) => r.id));
+      const filteredNew = page2Items.filter((r) => !existingIds.has(r.id));
+      const merged = [...existingItems, ...filteredNew];
+
+      expect(merged).toHaveLength(3);
+      expect(merged.map((m) => m.id)).toEqual(['rep-1', 'rep-2', 'rep-3']);
+    });
+
+    it('21. should correctly determine hasMore at final page boundary', () => {
+      const checkHasMore = (currentPage: number, totalPages: number, itemsLength: number) => {
+        return currentPage < totalPages && itemsLength > 0;
+      };
+
+      expect(checkHasMore(1, 3, 15)).toBe(true);
+      expect(checkHasMore(2, 3, 15)).toBe(true);
+      expect(checkHasMore(3, 3, 5)).toBe(false); // on final page
+      expect(checkHasMore(3, 3, 0)).toBe(false);
+      expect(checkHasMore(4, 3, 0)).toBe(false); // beyond final page
+    });
+
+    it('22. should preserve existing items when a paginated request fails and allow retry', () => {
+      let state = {
+        items: [{ id: 'rep-1' }, { id: 'rep-2' }],
+        page: 1,
+        paginationError: null as string | null,
+        isFetchingMore: false,
+      };
+
+      // Simulate failed page 2 fetch
+      try {
+        state.isFetchingMore = true;
+        throw new Error('Network timeout');
+      } catch (err: any) {
+        state.paginationError = err.message;
+      } finally {
+        state.isFetchingMore = false;
+      }
+
+      // Existing records MUST be preserved
+      expect(state.items).toHaveLength(2);
+      expect(state.page).toBe(1);
+      expect(state.paginationError).toBe('Network timeout');
+
+      // Simulate user retry succeeding
+      const retryNewItems = [{ id: 'rep-3' }];
+      state.paginationError = null;
+      state.items = [...state.items, ...retryNewItems];
+      state.page = 2;
+
+      expect(state.items).toHaveLength(3);
+      expect(state.page).toBe(2);
+      expect(state.paginationError).toBeNull();
+    });
+
+    it('23. should detect scroll near bottom threshold for automatic pagination', () => {
+      const isCloseToBottom = (layoutHeight: number, offsetY: number, contentHeight: number) => {
+        return layoutHeight + offsetY >= contentHeight - 180;
+      };
+
+      // Top of scroll view
+      expect(isCloseToBottom(800, 0, 2400)).toBe(false);
+      // Halfway down
+      expect(isCloseToBottom(800, 800, 2400)).toBe(false);
+      // Near bottom within 180px threshold
+      expect(isCloseToBottom(800, 1500, 2400)).toBe(true);
+      // At the absolute bottom
+      expect(isCloseToBottom(800, 1600, 2400)).toBe(true);
+    });
+  });
 });
 

@@ -62,6 +62,7 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
   const [commentsPage, setCommentsPage] = useState(1);
   const [hasMoreComments, setHasMoreComments] = useState(false);
   const [isFetchingMoreComments, setIsFetchingMoreComments] = useState(false);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
 
   // Loading & Error
   const [isLoading, setIsLoading] = useState(true);
@@ -70,6 +71,7 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
   const fetchReportDetails = useCallback(async () => {
     try {
       setError(null);
+      setCommentsError(null);
       const [reportData, historyData, assignmentData, communityData, commentsData] =
         await Promise.all([
           apiClient.getReport(reportId),
@@ -95,9 +97,10 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
     }
   }, [reportId]);
 
-  const handleLoadMoreComments = async () => {
+  const handleLoadMoreComments = useCallback(async () => {
     if (isFetchingMoreComments || !hasMoreComments) return;
     setIsFetchingMoreComments(true);
+    setCommentsError(null);
     const nextPage = commentsPage + 1;
     try {
       const res = await apiClient.listComments(reportId, nextPage, 10);
@@ -110,12 +113,12 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
       });
       setCommentsPage(nextPage);
       setHasMoreComments(nextPage < totalPages && newItems.length > 0);
-    } catch {
-      // non-blocking
+    } catch (err: any) {
+      setCommentsError(err?.message || 'Failed to load more comments. Tap to retry.');
     } finally {
       setIsFetchingMoreComments(false);
     }
-  };
+  }, [commentsPage, hasMoreComments, isFetchingMoreComments, reportId]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -276,7 +279,17 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
 
   return (
     <View style={styles.screenContainer}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        scrollEventThrottle={200}
+        onScroll={({ nativeEvent }) => {
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 180;
+          if (isCloseToBottom && hasMoreComments && !isFetchingMoreComments) {
+            handleLoadMoreComments();
+          }
+        }}
+      >
         {/* Navigation Bar */}
         <View style={styles.navBar}>
           <TouchableOpacity onPress={onBack} style={styles.backButton}>
@@ -571,23 +584,28 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
             );
           })}
 
-          {/* Load More Comments */}
-          {hasMoreComments && (
+          {/* Comments Pagination Loader & Error Recovery */}
+          {isFetchingMoreComments && (
+            <View style={styles.loadMoreRow}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.loadMoreText}>Loading more comments...</Text>
+            </View>
+          )}
+
+          {commentsError && (
             <TouchableOpacity
-              style={styles.loadMoreCommentsBtn}
+              style={styles.commentsRetryBtn}
               onPress={handleLoadMoreComments}
-              disabled={isFetchingMoreComments}
               activeOpacity={0.7}
             >
-              {isFetchingMoreComments ? (
-                <View style={styles.loadMoreRow}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={styles.loadMoreText}>Loading more comments...</Text>
-                </View>
-              ) : (
-                <Text style={styles.loadMoreText}>💬 Load Earlier Comments</Text>
-              )}
+              <Text style={styles.commentsRetryText}>⚠️ {commentsError}</Text>
             </TouchableOpacity>
+          )}
+
+          {!hasMoreComments && comments.length > 10 && (
+            <View style={styles.endOfCommentsContainer}>
+              <Text style={styles.endOfCommentsText}>✓ All comments loaded</Text>
+            </View>
           )}
         </View>
       </ScrollView>
@@ -967,25 +985,42 @@ const styles = StyleSheet.create({
     width: Dimensions.get('window').width * 0.95,
     height: Dimensions.get('window').height * 0.75,
   },
-  loadMoreCommentsBtn: {
+  commentsRetryBtn: {
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
-    backgroundColor: colors.cardBackground,
+    backgroundColor: '#FFFBEB',
     borderWidth: 1,
-    borderColor: colors.borderSubtle,
+    borderColor: '#FDE68A',
     borderRadius: radii.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: spacing.sm,
   },
+  commentsRetryText: {
+    fontSize: typography.sizes.sm,
+    color: '#B45309',
+    fontWeight: '600',
+  },
   loadMoreRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
     gap: spacing.sm,
   },
   loadMoreText: {
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.semibold,
     color: colors.primary,
+  },
+  endOfCommentsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+  },
+  endOfCommentsText: {
+    fontSize: typography.sizes.xs,
+    color: colors.textMuted,
+    fontWeight: '500',
   },
 });
