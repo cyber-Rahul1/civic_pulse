@@ -1,8 +1,20 @@
-import { ReportCategory, ReportStatus } from './enums.js';
+import { ReportCategory, ReportStatus, ReportUrgency, GpsEligibilityStatus } from './enums.js';
 
 export interface GeoPoint {
   type: 'Point';
   coordinates: [number, number]; // [longitude, latitude]
+}
+
+export interface AdministrativeContextDto {
+  districtId: string;
+  mandalId?: string;
+  localityId?: string;
+}
+
+export interface ReporterLocationDto {
+  coordinates: [number, number]; // [longitude, latitude]
+  eligibilityStatus: GpsEligibilityStatus;
+  accuracyMeters?: number;
 }
 
 export interface MediaAttachment {
@@ -33,8 +45,14 @@ export interface ReportDto {
   title: string;
   description: string;
   category: ReportCategory;
-  location: GeoPoint;
+  urgency?: ReportUrgency;
+  urgencyConfirmedBy?: string;
+  urgencyConfirmedAt?: string;
+  urgencyConfirmationReason?: string;
+  location?: GeoPoint;
   locationDescription?: string;
+  administrativeContext?: AdministrativeContextDto;
+  reporterLocation?: ReporterLocationDto;
   media: MediaAttachment[];
   status: ReportStatus;
   statusHistory: StatusTransitionRecord[];
@@ -60,4 +78,33 @@ export interface MediaSignatureResponseDto {
   publicId: string;
   allowedFormats: string[];
   maxFileSizeBytes: number;
+}
+
+export interface SignUploadDto {
+  reportId?: string;
+  resourceType?: 'image' | 'video';
+}
+
+export interface CreateReportDto {
+  title: string;
+  description: string;
+  category: ReportCategory;
+  location?: GeoPoint;
+  locationDescription?: string;
+  administrativeContext?: AdministrativeContextDto;
+  reporterLocation?: ReporterLocationDto;
+  media?: Array<{
+    mediaId: string;
+    publicId: string;
+    url: string;
+    secureUrl: string;
+    format: string;
+    resourceType: 'image' | 'video';
+    bytes: number;
+  }>;
+}
+
+export interface UpdateReportUrgencyDto {
+  urgency: ReportUrgency;
+  reason: string;
 }

@@ -11,6 +11,7 @@ export interface UserDocument {
   createdAt: Date;
   updatedAt: Date;
   lastLoginAt?: Date;
+  tokenVersion?: number;
 }
 
 export interface SessionDocument {

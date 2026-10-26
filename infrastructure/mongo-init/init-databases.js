@@ -7,6 +7,7 @@ const services = [
   { db: 'civic_reports', user: 'civic_reports_user', pwd: 'reports_dev_secret' },
   { db: 'civic_community', user: 'civic_community_user', pwd: 'community_dev_secret' },
   { db: 'civic_authority', user: 'civic_authority_user', pwd: 'authority_dev_secret' },
+  { db: 'civic_notifications', user: 'civic_notifications_user', pwd: 'notifications_dev_secret' },
   { db: 'civic_moderation', user: 'civic_moderation_user', pwd: 'moderation_dev_secret' }
 ];
 

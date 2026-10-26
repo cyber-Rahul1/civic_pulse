@@ -20,7 +20,14 @@ describe('MediaService Security Hardening Tests', () => {
         return { insertedId: doc._id };
       }),
       findOne: jest.fn(async (query: any) => {
-        return mediaStore.get(query._id) || null;
+        if (query._id) return mediaStore.get(query._id) || null;
+        if (query.$or) {
+          for (const cond of query.$or) {
+            if (cond._id && mediaStore.has(cond._id)) return mediaStore.get(cond._id);
+            if (cond.mediaId && mediaStore.has(cond.mediaId)) return mediaStore.get(cond.mediaId);
+          }
+        }
+        return null;
       }),
       updateOne: jest.fn(async (query: any, update: any) => {
         const doc = mediaStore.get(query._id);

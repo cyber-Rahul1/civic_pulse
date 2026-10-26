@@ -22,7 +22,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.17.10",
+    "polygon-clipping": "^0.15.7",
     "rimraf": "^6.0.1",
+    "simplify-js": "^1.2.4",
     "typescript": "^5.7.2"
   },
   "engines": {

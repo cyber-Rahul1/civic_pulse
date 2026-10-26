@@ -11,3 +11,5 @@ export interface DispatcherJobData {
 }
 
 export const WORKER_NAME = 'CivicEventDispatcherWorker';
+
+export * from './recovery-worker.js';

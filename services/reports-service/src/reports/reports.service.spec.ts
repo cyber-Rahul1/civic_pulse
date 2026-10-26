@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ReportCategory,
   ReportStatus,
@@ -129,6 +130,12 @@ describe('ReportsService Unit & Lifecycle Tests', () => {
         ReportsService,
         CivicLogger,
         {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue(''),
+          },
+        },
+        {
           provide: DatabaseService,
           useValue: mockDbService,
         },
@@ -156,7 +163,7 @@ describe('ReportsService Unit & Lifecycle Tests', () => {
           category: ReportCategory.POTHOLE,
           location: {
             type: 'Point',
-            coordinates: [77.5946, 12.9716],
+            coordinates: [80.6480, 16.5062],
           },
           locationDescription: 'Opposite Central Park Gate',
         },
@@ -168,7 +175,24 @@ describe('ReportsService Unit & Lifecycle Tests', () => {
       expect(report.status).toBe(ReportStatus.SUBMITTED);
       expect(report.statusHistory).toHaveLength(1);
       expect(report.statusHistory[0]?.newStatus).toBe(ReportStatus.SUBMITTED);
-      expect(report.location.coordinates).toEqual([77.5946, 12.9716]);
+      expect(report.location?.coordinates).toEqual([80.6480, 16.5062]);
+    });
+
+    it('should create a report without location when coordinates are omitted', async () => {
+      const report = await reportsService.createReport(
+        {
+          title: 'Unpinned Civic Report',
+          description: 'Citizen reporting general municipal issue without device GPS fix',
+          category: ReportCategory.GARBAGE,
+          locationDescription: 'Corner of 4th block near post office',
+        },
+        residentUser,
+      );
+
+      expect(report.id).toBeDefined();
+      expect(report.status).toBe(ReportStatus.SUBMITTED);
+      expect(report.location).toBeUndefined();
+      expect(report.locationDescription).toBe('Corner of 4th block near post office');
     });
 
     it('should throw BadRequestException on invalid latitude coordinates', async () => {
@@ -180,12 +204,29 @@ describe('ReportsService Unit & Lifecycle Tests', () => {
             category: ReportCategory.GARBAGE,
             location: {
               type: 'Point',
-              coordinates: [77.5946, 195.0], // Out of bounds latitude
+              coordinates: [80.6480, 195.0], // Out of bounds latitude
             },
           },
           residentUser,
         ),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject coordinates outside Andhra Pradesh jurisdiction', async () => {
+      await expect(
+        reportsService.createReport(
+          {
+            title: 'Out of State Issue',
+            description: 'Issue reported from outside Andhra Pradesh',
+            category: ReportCategory.GARBAGE,
+            location: {
+              type: 'Point',
+              coordinates: [77.5946, 12.9716], // Bangalore (Karnataka)
+            },
+          },
+          residentUser,
+        ),
+      ).rejects.toThrow(/outside Andhra Pradesh jurisdiction/);
     });
   });
 
@@ -200,7 +241,7 @@ describe('ReportsService Unit & Lifecycle Tests', () => {
           category: ReportCategory.STREETLIGHT,
           location: {
             type: 'Point',
-            coordinates: [77.6, 12.9],
+            coordinates: [80.6480, 16.5062],
           },
         },
         residentUser,
@@ -239,7 +280,7 @@ describe('ReportsService Unit & Lifecycle Tests', () => {
           category: ReportCategory.DRAINAGE,
           location: {
             type: 'Point',
-            coordinates: [77.55, 12.95],
+            coordinates: [80.6480, 16.5062],
           },
         },
         residentUser,
@@ -365,38 +406,38 @@ describe('ReportsService Unit & Lifecycle Tests', () => {
 
   describe('Geospatial Radius Queries', () => {
     it('should return nearby reports within radius and filter out distant reports', async () => {
-      // Point A: Bangalore MG Road [77.5946, 12.9716]
+      // Point A: Vijayawada Benz Circle [80.6480, 16.5062]
       await reportsService.createReport(
         {
-          title: 'Nearby Pothole',
-          description: 'Near MG Road',
+          title: 'Nearby Pothole in Vijayawada',
+          description: 'Near Benz Circle',
           category: ReportCategory.POTHOLE,
-          location: { type: 'Point', coordinates: [77.5946, 12.9716] },
+          location: { type: 'Point', coordinates: [80.6480, 16.5062] },
         },
         residentUser,
       );
 
-      // Point B: Mysore [76.6394, 12.2958] (~140 km away)
+      // Point B: Visakhapatnam RK Beach [83.2185, 17.6868] (~350 km away)
       await reportsService.createReport(
         {
-          title: 'Distant Pothole in Mysore',
-          description: 'Far away',
+          title: 'Distant Pothole in Visakhapatnam',
+          description: 'Far away on beach road',
           category: ReportCategory.POTHOLE,
-          location: { type: 'Point', coordinates: [76.6394, 12.2958] },
+          location: { type: 'Point', coordinates: [83.2185, 17.6868] },
         },
         residentUser,
       );
 
-      // Search with 10 km radius around Bangalore MG Road
+      // Search with 10 km radius around Vijayawada Benz Circle
       const nearby = await reportsService.findNearby({
-        longitude: 77.5946,
-        latitude: 12.9716,
+        longitude: 80.6480,
+        latitude: 16.5062,
         radiusMeters: 10000,
         limit: 10,
       });
 
       expect(nearby).toHaveLength(1);
-      expect(nearby[0]?.title).toBe('Nearby Pothole');
+      expect(nearby[0]?.title).toBe('Nearby Pothole in Vijayawada');
     });
   });
 });

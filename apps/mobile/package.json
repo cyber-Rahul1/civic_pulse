@@ -3,19 +3,59 @@
   "version": "0.1.0",
   "private": true,
   "description": "CivicPulse Mobile Application - React Native with Expo and TypeScript",
-  "main": "node_modules/expo/AppEntry.js",
+  "main": "index.js",
   "scripts": {
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "jest --passWithNoTests",
+    "test:cov": "jest --coverage"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts",
+      "tsx"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.(t|j)sx?$",
+    "transform": {
+      "^.+\\.(t|j)sx?$": "ts-jest"
+    },
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
   },
   "dependencies": {
-    "@civic-pulse/contracts": "*"
+    "@civic-pulse/contracts": "*",
+    "expo": "51.0.39",
+    "expo-camera": "~15.0.16",
+    "expo-image-picker": "~15.1.0",
+    "expo-location": "~17.0.1",
+    "expo-secure-store": "~13.0.2",
+    "react": "18.2.0",
+    "react-native": "0.74.5",
+    "react-native-maps": "1.14.0",
+    "react-native-svg": "15.2.0",
+    "react-native-webview": "13.8.6"
   },
   "devDependencies": {
     "@civic-pulse/tsconfig": "*",
+    "@types/jest": "^29.5.14",
+    "@types/react": "~18.2.45",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.15",
     "typescript": "^5.7.2"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "typescript"
+      ]
+    }
   }
 }

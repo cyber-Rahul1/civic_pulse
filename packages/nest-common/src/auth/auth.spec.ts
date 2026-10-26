@@ -149,7 +149,11 @@ describe('Auth & Crypto Utilities', () => {
 
   describe('RolesGuard', () => {
     const reflector = new Reflector();
-    const guard = new RolesGuard(reflector);
+    const mockRevocationChecker = {
+      checkTokenRevocation: jest.fn().mockResolvedValue({ isRevoked: false }),
+      close: jest.fn(),
+    } as any;
+    const guard = new RolesGuard(reflector, mockRevocationChecker);
 
     function createMockRoleContext(user?: any, requiredRoles?: UserRole[]): ExecutionContext {
       jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(requiredRoles);
@@ -163,20 +167,32 @@ describe('Auth & Crypto Utilities', () => {
       } as unknown as ExecutionContext;
     }
 
-    it('should permit access when user possesses the required role', () => {
+    it('should permit access when user possesses the required role', async () => {
       const ctx = createMockRoleContext(
         { sub: 'admin-1', role: UserRole.ADMIN },
         [UserRole.ADMIN],
       );
-      expect(guard.canActivate(ctx)).toBe(true);
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
     });
 
-    it('should reject with 403 Forbidden when user does not have required role', () => {
+    it('should reject with 403 Forbidden when user does not have required role', async () => {
       const ctx = createMockRoleContext(
         { sub: 'resident-1', role: UserRole.RESIDENT },
         [UserRole.ADMIN, UserRole.AUTHORITY],
       );
-      expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
+      await expect(guard.canActivate(ctx)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should reject with 401 Unauthorized when revocation checker reports revoked token', async () => {
+      mockRevocationChecker.checkTokenRevocation.mockResolvedValueOnce({
+        isRevoked: true,
+        reason: 'Session revoked',
+      });
+      const ctx = createMockRoleContext(
+        { sub: 'auth-1', role: UserRole.AUTHORITY },
+        [UserRole.AUTHORITY],
+      );
+      await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException);
     });
   });
 

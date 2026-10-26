@@ -3,3 +3,7 @@ export * from './api-response.js';
 export * from './events.js';
 export * from './auth.js';
 export * from './reports.js';
+export * from './community.js';
+export * from './authority.js';
+export * from './notifications.js';
+export * from './locations.js';

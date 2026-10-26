@@ -30,65 +30,62 @@ export class AppModule {
       this.configService.get<string>('IDENTITY_SERVICE_URL') || 'http://127.0.0.1:3001';
     const reportsUrl =
       this.configService.get<string>('REPORTS_SERVICE_URL') || 'http://127.0.0.1:3002';
+    const communityUrl =
+      this.configService.get<string>('COMMUNITY_SERVICE_URL') || 'http://127.0.0.1:3003';
+    const authorityUrl =
+      this.configService.get<string>('AUTHORITY_SERVICE_URL') || 'http://127.0.0.1:3004';
+    const notificationsUrl =
+      this.configService.get<string>('NOTIFICATIONS_SERVICE_URL') || 'http://127.0.0.1:3005';
 
-    // Register dependency readiness indicator to check Identity Service health
+    const createHttpCheck = (name: string, baseUrl: string) => async () => {
+      return new Promise<{ status: 'up' | 'down'; message?: string }>((resolve) => {
+        const target = new URL('/api/v1/health', baseUrl);
+        const req = http.get(target.href, { timeout: 3000 }, (res) => {
+          if (res.statusCode && res.statusCode < 400) {
+            resolve({ status: 'up', message: `${name} is responsive` });
+          } else {
+            resolve({
+              status: 'down',
+              message: `${name} returned status ${res.statusCode}`,
+            });
+          }
+        });
+        req.on('error', (err) => {
+          resolve({
+            status: 'down',
+            message: `${name} unreachable: ${err.message}`,
+          });
+        });
+        req.on('timeout', () => {
+          req.destroy();
+          resolve({ status: 'down', message: `${name} health check timed out` });
+        });
+      });
+    };
+
     this.healthService.registerIndicator({
       name: 'identity-service',
-      check: async () => {
-        return new Promise<{ status: 'up' | 'down'; message?: string }>((resolve) => {
-          const target = new URL('/api/v1/health', identityUrl);
-          const req = http.get(target.href, { timeout: 3000 }, (res) => {
-            if (res.statusCode && res.statusCode < 400) {
-              resolve({ status: 'up', message: 'Identity Service is responsive' });
-            } else {
-              resolve({
-                status: 'down',
-                message: `Identity Service returned status ${res.statusCode}`,
-              });
-            }
-          });
-          req.on('error', (err) => {
-            resolve({
-              status: 'down',
-              message: `Identity Service unreachable: ${err.message}`,
-            });
-          });
-          req.on('timeout', () => {
-            req.destroy();
-            resolve({ status: 'down', message: 'Identity Service health check timed out' });
-          });
-        });
-      },
+      check: createHttpCheck('Identity Service', identityUrl),
     });
 
-    // Register dependency readiness indicator to check Reports Service health
     this.healthService.registerIndicator({
       name: 'reports-service',
-      check: async () => {
-        return new Promise<{ status: 'up' | 'down'; message?: string }>((resolve) => {
-          const target = new URL('/api/v1/health', reportsUrl);
-          const req = http.get(target.href, { timeout: 3000 }, (res) => {
-            if (res.statusCode && res.statusCode < 400) {
-              resolve({ status: 'up', message: 'Reports Service is responsive' });
-            } else {
-              resolve({
-                status: 'down',
-                message: `Reports Service returned status ${res.statusCode}`,
-              });
-            }
-          });
-          req.on('error', (err) => {
-            resolve({
-              status: 'down',
-              message: `Reports Service unreachable: ${err.message}`,
-            });
-          });
-          req.on('timeout', () => {
-            req.destroy();
-            resolve({ status: 'down', message: 'Reports Service health check timed out' });
-          });
-        });
-      },
+      check: createHttpCheck('Reports Service', reportsUrl),
+    });
+
+    this.healthService.registerIndicator({
+      name: 'community-service',
+      check: createHttpCheck('Community Service', communityUrl),
+    });
+
+    this.healthService.registerIndicator({
+      name: 'authority-service',
+      check: createHttpCheck('Authority Service', authorityUrl),
+    });
+
+    this.healthService.registerIndicator({
+      name: 'notifications-service',
+      check: createHttpCheck('Notifications Service', notificationsUrl),
     });
   }
 }

@@ -1,8 +1,17 @@
-import { ServiceName, ReportStatus } from '@civic-pulse/contracts';
-
-export const APP_CONFIG = {
-  name: 'CivicPulse',
-  version: '0.1.0',
-  defaultTargetService: ServiceName.API_GATEWAY,
-  defaultReportStatus: ReportStatus.SUBMITTED,
-};
+export * from './theme/tokens';
+export * from './storage/secure-storage';
+export * from './config/env';
+export * from './api/api-client';
+export * from './context/auth-context';
+export * from './components/Button';
+export * from './components/Input';
+export * from './components/StatusBadge';
+export * from './components/FeedbackStates';
+export * from './screens/AuthScreen';
+export * from './screens/HomeScreen';
+export * from './screens/CreateReportScreen';
+export * from './screens/ReportDetailScreen';
+export * from './screens/NotificationsScreen';
+export * from './screens/ProfileScreen';
+export * from './screens/AuthorityScreen';
+export { default } from './App';

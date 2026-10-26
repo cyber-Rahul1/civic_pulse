@@ -52,12 +52,16 @@ export class TokenService implements OnModuleInit {
     return this.publicKeyPem;
   }
 
-  createAccessToken(user: { id: string; email: string; role: UserRole }, sessionId: string): string {
+  createAccessToken(
+    user: { id: string; email: string; role: UserRole; tokenVersion?: number },
+    sessionId: string,
+  ): string {
     const payload: Omit<JwtTokenPayload, 'iat' | 'exp'> = {
       sub: user.id,
       email: user.email,
       role: user.role,
       sessionId,
+      tokenVersion: user.tokenVersion ?? 1,
       iss: this.issuer,
       aud: this.audience,
     };

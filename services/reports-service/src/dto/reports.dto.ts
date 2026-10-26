@@ -66,6 +66,54 @@ export class MediaAttachmentInputDto {
   bytes!: number;
 }
 
+export class AdministrativeContextInputDto {
+  @ApiProperty({ example: 'ntr' })
+  @IsString()
+  @IsNotEmpty()
+  districtId!: string;
+
+  @ApiPropertyOptional({ example: 'vijayawada_urban' })
+  @IsOptional()
+  @IsString()
+  mandalId?: string;
+
+  @ApiPropertyOptional({ example: 'benz_circle' })
+  @IsOptional()
+  @IsString()
+  localityId?: string;
+}
+
+export class ReporterLocationInputDto {
+  @ApiProperty({
+    example: [80.648, 16.5062],
+    description: 'Current device [longitude, latitude]',
+  })
+  @IsArray()
+  @IsNumber({}, { each: true })
+  coordinates!: [number, number];
+
+  @ApiProperty({ enum: ['INSIDE_AP', 'OUTSIDE_AP', 'UNVERIFIED'] })
+  @IsEnum(['INSIDE_AP', 'OUTSIDE_AP', 'UNVERIFIED'])
+  eligibilityStatus!: 'INSIDE_AP' | 'OUTSIDE_AP' | 'UNVERIFIED';
+
+  @ApiPropertyOptional({ example: 12.5 })
+  @IsOptional()
+  @IsNumber()
+  accuracyMeters?: number;
+}
+
+export class UpdateReportUrgencyDto {
+  @ApiProperty({ enum: ['low', 'medium', 'high', 'critical'], example: 'critical' })
+  @IsEnum(['low', 'medium', 'high', 'critical'])
+  urgency!: 'low' | 'medium' | 'high' | 'critical';
+
+  @ApiProperty({ example: 'Life safety hazard confirmed on site by municipal engineering team' })
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  reason!: string;
+}
+
 export class CreateReportDto {
   @ApiProperty({ example: 'Large pothole on 5th Main Road', minLength: 5, maxLength: 120 })
   @IsString()
@@ -83,16 +131,33 @@ export class CreateReportDto {
   @IsEnum(ReportCategory)
   category!: ReportCategory;
 
-  @ApiProperty({ type: GeoPointDto })
+  @ApiPropertyOptional({ type: GeoPointDto })
+  @IsOptional()
   @ValidateNested()
   @Type(() => GeoPointDto)
-  location!: GeoPointDto;
+  location?: GeoPointDto;
 
   @ApiPropertyOptional({ example: 'Near Metro Pillar 140' })
   @IsOptional()
   @IsString()
   @MaxLength(255)
   locationDescription?: string;
+
+  @ApiPropertyOptional({
+    description: 'Hierarchical administrative place identifiers (districtId, mandalId, localityId)',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AdministrativeContextInputDto)
+  administrativeContext?: AdministrativeContextInputDto;
+
+  @ApiPropertyOptional({
+    description: 'Reporter current physical GPS location and eligibility status (distinguished from issue coordinates)',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ReporterLocationInputDto)
+  reporterLocation?: ReporterLocationInputDto;
 
   @ApiPropertyOptional({ type: [MediaAttachmentInputDto] })
   @IsOptional()
@@ -223,6 +288,16 @@ export class NearbyReportsDto {
   @Min(1)
   @Max(100)
   limit: number = 50;
+
+  @ApiPropertyOptional({ enum: ReportCategory, description: 'Optional category filter' })
+  @IsOptional()
+  @IsEnum(ReportCategory)
+  category?: ReportCategory;
+
+  @ApiPropertyOptional({ enum: ReportStatus, description: 'Optional status filter' })
+  @IsOptional()
+  @IsEnum(ReportStatus)
+  status?: ReportStatus;
 }
 
 export class SignUploadDto {

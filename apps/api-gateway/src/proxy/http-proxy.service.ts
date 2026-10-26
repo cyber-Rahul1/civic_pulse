@@ -38,6 +38,14 @@ export class HttpProxyService {
   }
 
   async forward(options: ProxyRequestOptions): Promise<ProxyResponse> {
+    const lowerPath = options.path.toLowerCase();
+    if (lowerPath.includes('/internal/') || lowerPath.startsWith('/internal/')) {
+      this.logger.warn(
+        `[${options.correlationId}] Blocked client attempt to access internal route via gateway proxy: ${options.path}`,
+      );
+      throw new HttpException('Not Found: Internal endpoints cannot be routed through gateway', 404);
+    }
+
     const targetUrl = new URL(options.path, options.targetServiceUrl);
 
     // 1. Ingress Header Sanitization:
@@ -45,7 +53,7 @@ export class HttpProxyService {
     const sanitizedHeaders: Record<string, string | string[] | undefined> = {};
     for (const [key, val] of Object.entries(options.headers)) {
       const lower = key.toLowerCase();
-      // Drop any spoofed internal headers or host header
+      // Drop any spoofed internal headers, host header, or user identity claims
       if (
         lower.startsWith('x-internal-') ||
         lower === 'x-user-id' ||

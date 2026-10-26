@@ -25,6 +25,21 @@ export interface StatusTransitionDoc {
   actorRole: string;
   reason?: string;
   timestamp: Date;
+  notificationDispatched?: boolean;
+  notificationDispatchError?: string;
+  notificationDispatchedAt?: Date;
+}
+
+export interface AdministrativeContextDoc {
+  districtId: string;
+  mandalId?: string;
+  localityId?: string;
+}
+
+export interface ReporterLocationDoc {
+  coordinates: [number, number]; // [longitude, latitude]
+  eligibilityStatus: 'INSIDE_AP' | 'OUTSIDE_AP' | 'UNVERIFIED';
+  accuracyMeters?: number;
 }
 
 export interface ReportDocument {
@@ -33,8 +48,14 @@ export interface ReportDocument {
   title: string;
   description: string;
   category: ReportCategory;
-  location: GeoPointDoc;
+  urgency?: 'low' | 'medium' | 'high' | 'critical';
+  urgencyConfirmedBy?: string;
+  urgencyConfirmedAt?: Date;
+  urgencyConfirmationReason?: string;
+  location?: GeoPointDoc;
   locationDescription?: string;
+  administrativeContext?: AdministrativeContextDoc;
+  reporterLocation?: ReporterLocationDoc;
   media: MediaAttachmentDoc[];
   status: ReportStatus;
   statusHistory: StatusTransitionDoc[];

@@ -26,6 +26,15 @@ export enum EventTopic {
   NOTIFICATIONS_DISPATCH = 'civic.notifications.dispatch',
 }
 
+export enum NotificationEventType {
+  REPORT_CREATED = 'REPORT_CREATED',
+  REPORT_STATUS_CHANGED = 'REPORT_STATUS_CHANGED',
+  REPORT_COMMENT_ADDED = 'REPORT_COMMENT_ADDED',
+  COMMENT_REPLY_ADDED = 'COMMENT_REPLY_ADDED',
+  REPORT_ASSIGNED = 'REPORT_ASSIGNED',
+  AUTHORITY_APPLICATION_REVIEWED = 'AUTHORITY_APPLICATION_REVIEWED',
+}
+
 /**
  * Domain Event Payloads
  */
@@ -52,9 +61,50 @@ export interface ReportCreatedEventPayload {
 
 export interface ReportStatusUpdatedEventPayload {
   reportId: string;
+  reportTitle: string;
+  authorId: string;
   previousStatus: string;
   newStatus: string;
   updatedByUserId: string;
   authorityDepartmentId?: string;
   reason?: string;
+}
+
+export interface ReportCommentAddedEventPayload {
+  commentId: string;
+  reportId: string;
+  reportTitle: string;
+  reportAuthorId: string;
+  commentAuthorId: string;
+  commentAuthorName?: string;
+  contentSnippet: string;
+}
+
+export interface CommentReplyAddedEventPayload {
+  replyId: string;
+  parentCommentId: string;
+  parentAuthorId: string;
+  reportId: string;
+  reportTitle: string;
+  replyAuthorId: string;
+  replyAuthorName?: string;
+  contentSnippet: string;
+}
+
+export interface ReportAssignedEventPayload {
+  reportId: string;
+  reportTitle: string;
+  reportAuthorId: string;
+  departmentId: string;
+  departmentName: string;
+  assignedByUserId: string;
+  assignmentReason?: string;
+}
+
+export interface AuthorityApplicationReviewedEventPayload {
+  applicationId: string;
+  applicantUserId: string;
+  status: 'APPROVED' | 'REJECTED';
+  reviewedByUserId: string;
+  decisionNotes?: string;
 }

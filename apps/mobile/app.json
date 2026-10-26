@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "CivicPulse",
+    "slug": "civic-pulse",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#1E3A8A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "org.civicpulse.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "CivicPulse uses your location to tag civic issues and find nearby reports in your neighborhood.",
+        "NSCameraUsageDescription": "CivicPulse allows you to take photos of civic issues to attach to your reports.",
+        "NSPhotoLibraryUsageDescription": "CivicPulse lets you select photos of civic issues to attach to your reports."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1E3A8A"
+      },
+      "package": "org.civicpulse.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "CivicPulse uses your location to tag civic issues and find nearby reports in your neighborhood."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "CivicPulse lets you select photos of civic issues to attach to your reports.",
+          "cameraPermission": "CivicPulse allows you to take photos of civic issues to attach to your reports."
+        }
+      ]
+    ]
+  }
+}

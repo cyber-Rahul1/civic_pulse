@@ -60,4 +60,8 @@ export class IdentityEnvConfig {
   @IsString()
   @IsOptional()
   INTERNAL_SERVICE_KEY: string = 'civic_pulse_internal_service_secret_dev';
+
+  @IsString()
+  @IsOptional()
+  AUTHORITY_INTERNAL_KEY: string = 'civic_pulse_authority_internal_secret_dev';
 }

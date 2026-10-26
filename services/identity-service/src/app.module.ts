@@ -11,6 +11,7 @@ import { TokenService } from './auth/token.service.js';
 import { AuthService } from './auth/auth.service.js';
 import { AuthController } from './auth/auth.controller.js';
 import { IdentityJwtAuthGuard } from './auth/identity-jwt-auth.guard.js';
+import { RevocationRegistryService } from './auth/revocation-registry.service.js';
 
 @Module({
   imports: [
@@ -21,8 +22,15 @@ import { IdentityJwtAuthGuard } from './auth/identity-jwt-auth.guard.js';
     HealthModule.register(ServiceName.IDENTITY, '1.0.0'),
   ],
   controllers: [AuthController],
-  providers: [CivicLogger, DatabaseService, TokenService, AuthService, IdentityJwtAuthGuard],
-  exports: [DatabaseService, TokenService, AuthService],
+  providers: [
+    CivicLogger,
+    DatabaseService,
+    TokenService,
+    AuthService,
+    IdentityJwtAuthGuard,
+    RevocationRegistryService,
+  ],
+  exports: [DatabaseService, TokenService, AuthService, RevocationRegistryService],
 })
 export class AppModule {
   constructor(

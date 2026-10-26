@@ -94,3 +94,74 @@ Every transition atomically generates an immutable audit record in `statusHistor
 - [ADR 0009: Cloudinary Presigned Media Upload Strategy](adr/0009-cloudinary-presigned-media-uploads.md)
 - [ADR 0010: MongoDB Geospatial Indexing and Location Precision Policy](adr/0010-geospatial-query-and-privacy.md)
 
+---
+
+## 6. Phase 3: Community & Authority Workflows
+
+### 6.1 Community Service (`services/community-service`)
+- **Logical DB**: `civic_community` with isolated credentials `civic_community_user`.
+- **Endorsements / Support**: Idempotent compound unique index on `(reportId, userId)`. Tracks community support counts and prevents duplicate votes.
+- **Following**: Residents can follow reports to receive future notifications. Unique compound index on `(reportId, userId)`.
+- **Discussions (Comments & Replies)**: Bounded 1-level reply nesting constraint to prevent deeply recursive trees. Soft deletion preserves conversation integrity.
+- **Moderation & Abuse Reports**: Authorized moderators can hide/restore comments; rate-limited reporting for spam/harassment.
+- **Cross-Service Validation**: Verifies report existence via Reports Service internal endpoint `GET /api/v1/internal/reports/:id/exists` without database sharing.
+
+### 6.2 Authority Service (`services/authority-service`)
+- **Logical DB**: `civic_authority` with isolated credentials `civic_authority_user`.
+- **Authority Verification Workflow**:
+  - Residents apply with municipal credentials (status: `PENDING`).
+  - Strict anti-self-approval safeguard: applicant cannot review their own application.
+  - Platform administrator reviews and approves.
+  - On approval, Authority Service calls Identity Service internal S2S endpoint (`POST /api/v1/auth/internal/users/:id/role`) to safely elevate the user's role to `authority`.
+- **Department Management**:
+  - Admin-governed municipal departments with unique compound index on `(name, jurisdiction)`.
+  - Public directory protects private staff contact details.
+- **Report Assignments**:
+  - Verified authorities/admins route civic reports to active municipal departments.
+  - Historical reassignment records preserved with full audit trail.
+  - Public accountability view (`/api/v1/reports/:id/assignments/public`) displays department and history count without exposing internal staff notes.
+  - Does NOT automatically transition report to `RESOLVED` (preserves report state machine independence).
+
+### 6.3 Phase 3 Architecture Decision Records (ADRs)
+- [ADR 0011: Community Service Data Boundaries, Idempotent Support, and Discussion Hierarchy](adr/0011-community-service-data-boundaries.md)
+- [ADR 0012: Authority Verification Workflow and Controlled Role Elevation](adr/0012-authority-verification-and-role-elevation.md)
+- [ADR 0013: Department Assignment Lifecycle and Cross-Service Consistency](adr/0013-department-assignment-lifecycle.md)
+
+---
+
+## 7. Phase 4 & 4.1: Durable Event-Driven Notifications & Idempotent Processing
+
+### 7.1 Single-Document Outbox Pattern (Standalone MongoDB Resilience)
+Because local development and standalone MongoDB instances do not support multi-document replica-set transactions, notification publication intent is stored **atomically within the source mutation document**:
+- **Reports Service**: `statusHistory.$.notificationDispatched` (boolean) and `statusHistory.$.notificationDispatchedAt` (Date) on `reports`.
+- **Community Service**: `notificationDispatched` and `notificationDispatchedAt` on `comments`.
+- **Authority Service**: `notificationDispatched` on `authority_applications` and `report_assignments`.
+
+This guarantees that an event's publication intent is committed atomically with the source mutation in a single single-document write without distributed transactions.
+
+### 7.2 Deterministic Event Identifiers
+Event IDs are generated once and persisted with the originating entity, ensuring that all retry and recovery attempts preserve the exact same identifier:
+- **Report Status Transitions**: `transitionRecord.transitionId` (generated once at transition and stored in `statusHistory`).
+- **Comments and Replies**: `commentDoc._id` (persisted on comment document).
+- **Authority Application Reviews**: `${applicationId}-review` (derived deterministically from application ID).
+- **Report Assignments**: `assignmentDoc._id` (persisted on assignment document).
+
+### 7.3 Receiver-Side Partial Processing Recovery
+The Notifications Service tracks processed events with explicit four-state lifecycle transitions:
+`PENDING` -> `PROCESSING` -> `COMPLETED` / `FAILED`
+1. Before generating recipient notifications, the event record is upserted with status `PROCESSING`.
+2. As recipient notifications are written, compound unique indexes `{ eventId: 1, recipientUserId: 1 }` guarantee strict deduplication.
+3. If processing crashes or restarts after partial writes, subsequent retries resume and skip already-created notifications.
+4. Only when all recipient notifications are successfully created is the event marked `COMPLETED` and acknowledged to the caller.
+
+### 7.4 Recoverable Dispatch & Background Worker Coordination
+The `event-dispatcher-worker` runs an autonomous recovery loop:
+1. **Redis Distributed Lease**: Acquires `lock:event_dispatcher_recovery` via `SET key val PX leaseDuration NX` to ensure single-worker execution across multiple worker replicas.
+2. **Authenticated S2S Polling**: Calls internal service-owned endpoints protected by `InternalServiceGuard`:
+   - `POST /api/v1/internal/reports/events/recover`
+   - `POST /api/v1/internal/community/events/recover`
+   - `POST /api/v1/internal/authority/events/recover`
+3. **Delivery Acknowledgement**: An event is marked `notificationDispatched: true` only after Notifications Service returns HTTP 200 with `{ received: true, processed: true }`.
+4. **Crash Recovery**: Pending un-dispatched events survive worker terminations, application restarts, and notification-service outages.
+
+

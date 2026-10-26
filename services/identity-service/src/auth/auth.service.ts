@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
   ForbiddenException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
@@ -23,6 +24,7 @@ import {
 } from '@civic-pulse/contracts';
 import { DatabaseService } from '../database/database.service.js';
 import { TokenService } from './token.service.js';
+import { RevocationRegistryService } from './revocation-registry.service.js';
 import { RegisterDto, LoginDto, RefreshTokenDto } from '../dto/auth.dto.js';
 import {
   UserDocument,
@@ -40,6 +42,7 @@ export class AuthService {
     private readonly tokenService: TokenService,
     private readonly configService: ConfigService,
     private readonly logger: CivicLogger,
+    @Optional() private readonly revocationRegistry?: RevocationRegistryService,
   ) {
     this.logger.setContext('Identity:AuthService');
     this.accessExpirationSeconds = Number(
@@ -201,7 +204,7 @@ export class AuthService {
     await this.db.refreshTokens.insertOne(newRefreshDoc);
 
     const accessToken = this.tokenService.createAccessToken(
-      { id: user._id, email: user.email, role: user.role },
+      { id: user._id, email: user.email, role: user.role, tokenVersion: user.tokenVersion ?? 1 },
       session._id,
     );
 
@@ -218,6 +221,12 @@ export class AuthService {
 
   async logout(sessionId: string, refreshToken?: string): Promise<{ message: string }> {
     const now = new Date();
+    // 1. Invalidate in Redis FIRST so access tokens cannot be used
+    if (this.revocationRegistry) {
+      await this.revocationRegistry.revokeSession(sessionId, this.accessExpirationSeconds);
+    }
+
+    // 2. Persist in DB
     await this.db.sessions.updateOne(
       { _id: sessionId },
       { $set: { isRevoked: true, revocationReason: 'User logged out', updatedAt: now } },
@@ -242,6 +251,25 @@ export class AuthService {
 
   async logoutAll(userId: string): Promise<{ message: string; sessionsRevokedCount: number }> {
     const now = new Date();
+    const epochSeconds = Math.floor(now.getTime() / 1000);
+
+    // 1. Fetch current user to obtain and increment tokenVersion
+    const user = await this.db.users.findOne({ _id: userId });
+    const currentVersion = user?.tokenVersion ?? 1;
+    const newVersion = currentVersion + 1;
+
+    // 2. Invalidate in Redis FIRST (fail-closed if Redis write fails)
+    if (this.revocationRegistry) {
+      await this.revocationRegistry.revokeUser(userId, epochSeconds, this.accessExpirationSeconds);
+      await this.revocationRegistry.revokeUserVersion(userId, newVersion, this.accessExpirationSeconds);
+    }
+
+    // 3. Atomically update user tokenVersion and sessions in DB
+    await this.db.users.updateOne(
+      { _id: userId },
+      { $set: { tokenVersion: newVersion, updatedAt: now } },
+    );
+
     const result = await this.db.sessions.updateMany(
       { userId, isRevoked: false },
       { $set: { isRevoked: true, revocationReason: 'User executed logout-all', updatedAt: now } },
@@ -252,7 +280,7 @@ export class AuthService {
       { $set: { isRevoked: true } },
     );
 
-    this.logger.log(`Revoked all sessions for userId: ${userId} (count: ${result.modifiedCount})`);
+    this.logger.log(`Revoked all sessions for userId: ${userId} (count: ${result.modifiedCount}, version: ${newVersion})`);
     return {
       message: 'All active sessions have been revoked',
       sessionsRevokedCount: result.modifiedCount,
@@ -268,7 +296,7 @@ export class AuthService {
   }
 
   private async issueTokenPair(
-    user: { _id: string; email: string; role: UserRole },
+    user: { _id: string; email: string; role: UserRole; tokenVersion?: number },
     sessionId: string,
   ): Promise<AuthTokens> {
     const now = new Date();
@@ -289,7 +317,7 @@ export class AuthService {
     await this.db.refreshTokens.insertOne(refreshDoc);
 
     const accessToken = this.tokenService.createAccessToken(
-      { id: user._id, email: user.email, role: user.role },
+      { id: user._id, email: user.email, role: user.role, tokenVersion: user.tokenVersion ?? 1 },
       sessionId,
     );
 
@@ -299,6 +327,62 @@ export class AuthService {
       tokenType: 'Bearer',
       expiresInSeconds: this.accessExpirationSeconds,
     };
+  }
+
+  async updateUserRole(userId: string, newRole: UserRole): Promise<UserProfileDto> {
+    const user = await this.db.users.findOne({ _id: userId });
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found`);
+    }
+
+    const previousRole = user.role;
+    const now = new Date();
+    const epochSeconds = Math.floor(now.getTime() / 1000);
+
+    // If role changed (promoted or revoked/demoted), increment tokenVersion and revoke in Redis FIRST
+    if (previousRole !== newRole) {
+      const currentVersion = user.tokenVersion ?? 1;
+      const newVersion = currentVersion + 1;
+
+      // 1. Write revocation to Redis FIRST
+      // If Redis fails, this throws and aborts without mutating DB or granting unrevoked role
+      if (this.revocationRegistry) {
+        await this.revocationRegistry.revokeUser(userId, epochSeconds, this.accessExpirationSeconds);
+        await this.revocationRegistry.revokeUserVersion(userId, newVersion, this.accessExpirationSeconds);
+      }
+
+      // 2. Persist role update and incremented tokenVersion in DB
+      await this.db.users.updateOne(
+        { _id: userId },
+        { $set: { role: newRole, tokenVersion: newVersion, updatedAt: now } },
+      );
+      this.logger.log(`User role updated: ${userId} -> ${newRole} (version: ${newVersion})`);
+
+      // 3. Revoke existing refresh sessions
+      await this.db.sessions.updateMany(
+        { userId, isRevoked: false },
+        {
+          $set: {
+            isRevoked: true,
+            revocationReason: `User role changed from ${previousRole} to ${newRole}`,
+            updatedAt: now,
+          },
+        },
+      );
+      await this.db.refreshTokens.updateMany(
+        { userId, isRevoked: false },
+        { $set: { isRevoked: true } },
+      );
+      this.logger.log(`Revoked existing sessions for user ${userId} due to role change`);
+    } else {
+      await this.db.users.updateOne(
+        { _id: userId },
+        { $set: { role: newRole, updatedAt: now } },
+      );
+    }
+
+    const updated = await this.db.users.findOne({ _id: userId });
+    return this.mapToProfile(updated!);
   }
 
   private mapToProfile(user: UserDocument): UserProfileDto {

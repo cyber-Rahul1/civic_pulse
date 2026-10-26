@@ -173,6 +173,7 @@ export class MediaService {
   async verifyAssetWithProvider(
     publicId: string,
     resourceType: 'image' | 'video',
+    folder?: string,
   ): Promise<VerifiedAssetDetails | null> {
     if (this.customProvider) {
       return this.customProvider.verifyAsset(publicId, resourceType);
@@ -185,60 +186,74 @@ export class MediaService {
     }
 
     // Cloudinary Admin API: GET https://api.cloudinary.com/v1_1/<cloud_name>/resources/<resource_type>/upload/<public_id>
-    return new Promise((resolve, reject) => {
-      const auth = Buffer.from(`${this.apiKey}:${this.apiSecret}`).toString('base64');
-      const targetUrl = new URL(
-        `https://api.cloudinary.com/v1_1/${this.cloudName}/resources/${resourceType}/upload/${encodeURIComponent(publicId)}`,
-      );
+    const checkWithId = (idToCheck: string): Promise<VerifiedAssetDetails | null> => {
+      return new Promise((resolve, reject) => {
+        const auth = Buffer.from(`${this.apiKey}:${this.apiSecret}`).toString('base64');
+        const targetUrl = new URL(
+          `https://api.cloudinary.com/v1_1/${this.cloudName}/resources/${resourceType}/upload/${encodeURIComponent(idToCheck)}`,
+        );
 
-      const req = https.get(
-        targetUrl.href,
-        {
-          headers: {
-            Authorization: `Basic ${auth}`,
+        const req = https.get(
+          targetUrl.href,
+          {
+            headers: {
+              Authorization: `Basic ${auth}`,
+            },
+            timeout: 5000,
           },
-          timeout: 5000,
-        },
-        (res) => {
-          let body = '';
-          res.on('data', (c) => (body += c));
-          res.on('end', () => {
-            if (res.statusCode === 404) {
-              resolve(null); // Asset does not exist in Cloudinary
-              return;
-            }
-            if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-              try {
-                const parsed = JSON.parse(body);
-                resolve({
-                  publicId: parsed.public_id,
-                  resourceType: parsed.resource_type,
-                  format: parsed.format,
-                  bytes: parsed.bytes,
-                  url: parsed.url,
-                  secureUrl: parsed.secure_url,
-                });
-              } catch (e) {
-                reject(e);
+          (res) => {
+            let body = '';
+            res.on('data', (c) => (body += c));
+            res.on('end', () => {
+              if (res.statusCode === 404) {
+                resolve(null); // Asset does not exist in Cloudinary with this id
+                return;
               }
-            } else {
-              this.logger.error(`Cloudinary API error (${res.statusCode}): ${body}`);
-              resolve(null);
-            }
-          });
-        },
-      );
+              if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+                try {
+                  const parsed = JSON.parse(body);
+                  resolve({
+                    publicId: parsed.public_id,
+                    resourceType: parsed.resource_type,
+                    format: parsed.format,
+                    bytes: parsed.bytes,
+                    url: parsed.url,
+                    secureUrl: parsed.secure_url,
+                  });
+                } catch (e) {
+                  reject(e);
+                }
+              } else {
+                this.logger.error(`Cloudinary API error (${res.statusCode}): ${body}`);
+                resolve(null);
+              }
+            });
+          },
+        );
 
-      req.on('error', (err) => {
-        this.logger.error(`Cloudinary verification error: ${err.message}`);
-        reject(new ServiceUnavailableException(`Cloudinary verification failed: ${err.message}`));
-      });
+        req.on('error', (err) => {
+          this.logger.error(`Cloudinary verification error: ${err.message}`);
+          reject(new ServiceUnavailableException(`Cloudinary verification failed: ${err.message}`));
+        });
 
-      req.on('timeout', () => {
-        req.destroy();
-        reject(new ServiceUnavailableException('Cloudinary verification request timed out'));
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new ServiceUnavailableException('Cloudinary verification request timed out'));
+        });
       });
-    });
+    };
+
+    // If folder was configured and publicId doesn't include it, check full path first
+    const fullPathId = folder && !publicId.startsWith(`${folder}/`)
+      ? `${folder}/${publicId}`
+      : publicId;
+
+    const result = await checkWithId(fullPathId);
+    if (result) return result;
+    if (fullPathId !== publicId) {
+      return checkWithId(publicId);
+    }
+    return null;
   }
 
   /**
@@ -271,8 +286,14 @@ export class MediaService {
         throw new BadRequestException('Media attachment must include a valid publicId');
       }
 
-      // Look up server-side pre-authorization record
-      const preAuth = await this.db.mediaUploads.findOne({ _id: item.publicId });
+      // Look up server-side pre-authorization record (by exact publicId or by stripped mediaId UUID)
+      const bareMediaId = item.publicId.includes('/')
+        ? item.publicId.split('/').pop()!
+        : item.publicId;
+
+      const preAuth = await this.db.mediaUploads.findOne({
+        $or: [{ _id: item.publicId }, { _id: bareMediaId }, { mediaId: bareMediaId }],
+      });
       if (!preAuth) {
         this.logger.warn(
           `Untrusted media attachment attempt: publicId "${item.publicId}" not found in media_uploads.`,
@@ -310,6 +331,7 @@ export class MediaService {
       const verifiedAsset = await this.verifyAssetWithProvider(
         preAuth._id,
         preAuth.resourceType,
+        preAuth.uploadFolder,
       );
 
       if (!verifiedAsset) {

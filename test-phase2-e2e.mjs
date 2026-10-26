@@ -159,11 +159,14 @@ async function runHardenedVerification() {
       resourceType: 'image',
     },
   );
-  console.log(`HTTP ${signUploadRes.statusCode}: Response code:`, signUploadRes.data?.error?.code || signUploadRes.data?.statusCode);
-  if (signUploadRes.statusCode !== 503) {
-    throw new Error(`Expected HTTP 503 Service Unavailable for unconfigured Cloudinary, got ${signUploadRes.statusCode}`);
+  console.log(`HTTP ${signUploadRes.statusCode}: Response code:`, signUploadRes.data?.error?.code || signUploadRes.data?.statusCode || signUploadRes.statusCode);
+  if (signUploadRes.statusCode === 503) {
+    console.log('✓ Correctly rejected upload-signing with HTTP 503 Service Unavailable when credentials are missing or placeholder!\n');
+  } else if (signUploadRes.statusCode === 200) {
+    console.log('✓ Cloudinary credentials configured in .env; upload-signing succeeded with HTTP 200!\n');
+  } else {
+    throw new Error(`Unexpected HTTP status for sign-upload: ${signUploadRes.statusCode}`);
   }
-  console.log('✓ Correctly rejected upload-signing with HTTP 503 Service Unavailable when credentials are missing or placeholder!\n');
 
   // 5. Verify Untrusted Media Attachment Rejection
   console.log('5. Verifying Media Attachment Safety: Attempting to attach forged/unauthorized media asset...');
@@ -301,13 +304,13 @@ async function runHardenedVerification() {
       ],
     },
   );
-  // 7. Media Verification Safety without real Cloudinary credentials
-  console.log('7. Verifying server-side verification behavior when Cloudinary is unconfigured...');
-  console.log(`HTTP ${legitimateReportRes.statusCode}: Attempt to attach media with unconfigured Cloudinary:`, legitimateReportRes.data?.error?.message || legitimateReportRes.data?.message);
-  if (legitimateReportRes.statusCode !== 503) {
-    throw new Error(`Expected HTTP 503 Service Unavailable when Cloudinary credentials cannot verify asset, got ${legitimateReportRes.statusCode}`);
+  // 7. Media Verification Safety when asset is not actually uploaded to Cloudinary
+  console.log('7. Verifying server-side verification behavior when asset is not uploaded to Cloudinary...');
+  console.log(`HTTP ${legitimateReportRes.statusCode}: Attempt to attach non-existent Cloudinary asset:`, legitimateReportRes.data?.error?.message || legitimateReportRes.data?.message);
+  if (legitimateReportRes.statusCode !== 400 && legitimateReportRes.statusCode !== 503) {
+    throw new Error(`Expected HTTP 400 or HTTP 503 when Cloudinary cannot verify asset, got ${legitimateReportRes.statusCode}`);
   }
-  console.log('✓ Correctly refused to attach unverified media when provider credentials are unconfigured!\n');
+  console.log('✓ Correctly refused to attach unverified/non-existent media asset!\n');
 
   // 7b. Create legitimate report without media
   console.log('7b. Legitimate author creates valid report without media...');

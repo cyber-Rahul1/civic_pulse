@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Req,
+  UnauthorizedException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -23,6 +24,7 @@ import {
   UserProfileDto,
   AuthResponseData,
   JwtTokenPayload,
+  UserRole,
 } from '@civic-pulse/contracts';
 import { AuthService } from './auth.service.js';
 import { TokenService } from './token.service.js';
@@ -120,5 +122,46 @@ export class AuthController {
   @SwaggerResponse({ status: 200, description: 'PEM public key' })
   getPublicKey(): { publicKey: string } {
     return { publicKey: this.tokenService.getPublicKey() };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal S2S Role Update Endpoint (Authorized callers only)
+  // ---------------------------------------------------------------------------
+  @Post('internal/users/:id/role')
+  @ApiOperation({ summary: 'Elevate or modify user role via internal service communication' })
+  async updateRole(
+    @Req() req: FastifyRequest,
+    @Body() dto: { role: UserRole },
+  ): Promise<UserProfileDto> {
+    const internalKey = req.headers['x-internal-service-token'] as string | undefined;
+    const callerService = req.headers['x-internal-service-name'] as string | undefined;
+
+    // Reject missing credentials
+    if (!internalKey) {
+      throw new UnauthorizedException('Missing internal service credentials');
+    }
+
+    // Cryptographic service credential verification:
+    // In production, AUTHORITY_INTERNAL_KEY must be explicitly set and cannot fall back to dev secret
+    const isProd = process.env.NODE_ENV === 'production';
+    const authorityInternalKey = process.env.AUTHORITY_INTERNAL_KEY || (isProd ? '' : 'civic_pulse_authority_internal_secret_dev');
+    
+    if (!authorityInternalKey) {
+      throw new UnauthorizedException('Authority service internal key is not configured in production');
+    }
+
+    // Role elevation requires the specific authority-service credential.
+    // Possession of generic INTERNAL_SERVICE_KEY or other service secrets is insufficient.
+    if (internalKey !== authorityInternalKey) {
+      throw new UnauthorizedException('Caller is not authorized for user role elevation');
+    }
+
+    // Self-asserted callerService header must also match if present, but the credential itself proves identity
+    if (callerService && callerService !== 'authority-service') {
+      throw new UnauthorizedException('Caller service identity mismatch');
+    }
+
+    const userId = (req.params as any).id;
+    return this.authService.updateUserRole(userId, dto.role);
   }
 }

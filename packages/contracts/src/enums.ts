@@ -45,3 +45,9 @@ export enum ReportUrgency {
   HIGH = 'high',
   CRITICAL = 'critical',
 }
+
+export enum GpsEligibilityStatus {
+  INSIDE_AP = 'INSIDE_AP',
+  OUTSIDE_AP = 'OUTSIDE_AP',
+  UNVERIFIED = 'UNVERIFIED',
+}

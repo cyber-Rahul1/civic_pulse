@@ -6,18 +6,25 @@ import {
 } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { Filter } from 'mongodb';
-import { CivicLogger } from '@civic-pulse/nest-common';
+import { CivicLogger, dispatchNotificationEvent } from '@civic-pulse/nest-common';
+import { ConfigService } from '@nestjs/config';
 import {
   ReportDto,
   ReportStatus,
+  ReportUrgency,
   UserRole,
   JwtTokenPayload,
+  NotificationEventType,
+  isCoordinateInAndhraPradesh,
+  validateAdministrativeConsistency,
+  GpsEligibilityStatus,
 } from '@civic-pulse/contracts';
 import { DatabaseService } from '../database/database.service.js';
 import { MediaService } from '../media/media.service.js';
 import {
   CreateReportDto,
   UpdateReportDto,
+  UpdateReportUrgencyDto,
   TransitionStatusDto,
   QueryReportsDto,
   NearbyReportsDto,
@@ -29,12 +36,22 @@ import {
 
 @Injectable()
 export class ReportsService {
+  private readonly notificationsServiceUrl: string;
+  private readonly internalServiceKey: string;
+
   constructor(
     private readonly db: DatabaseService,
     private readonly mediaService: MediaService,
+    private readonly configService: ConfigService,
     private readonly logger: CivicLogger,
   ) {
     this.logger.setContext('Reports:ReportsService');
+    this.notificationsServiceUrl =
+      this.configService.get<string>('NOTIFICATIONS_SERVICE_URL') ||
+      'http://127.0.0.1:3005';
+    this.internalServiceKey =
+      this.configService.get<string>('NOTIFICATIONS_INTERNAL_KEY') ||
+      'civic_pulse_notifications_internal_secret_dev';
   }
 
   // --- Permitted Transition Matrix ---
@@ -51,8 +68,56 @@ export class ReportsService {
     dto: CreateReportDto,
     author: JwtTokenPayload,
   ): Promise<ReportDto> {
-    // Validate coordinates range
-    this.validateCoordinates(dto.location.coordinates);
+    // 1. Validate coordinates range and state boundary if location is provided
+    let locationDoc: ReportDocument['location'] = undefined;
+    if (dto.location) {
+      this.validateCoordinates(dto.location.coordinates);
+      locationDoc = {
+        type: 'Point',
+        coordinates: [dto.location.coordinates[0], dto.location.coordinates[1]],
+      };
+    }
+
+    // 2. Validate Administrative Hierarchy Selection & Coordinate Consistency
+    if (dto.administrativeContext) {
+      const consistency = validateAdministrativeConsistency(
+        dto.administrativeContext.districtId,
+        dto.administrativeContext.mandalId,
+        dto.administrativeContext.localityId,
+        dto.location?.coordinates
+      );
+      if (!consistency.isValid) {
+        throw new BadRequestException(
+          `Administrative hierarchy mismatch: ${consistency.error}`
+        );
+      }
+    }
+
+    // 3. Validate Reporter Location Policy if provided
+    let reporterLocationDoc: ReportDocument['reporterLocation'] = undefined;
+    if (dto.reporterLocation) {
+      if (
+        !Array.isArray(dto.reporterLocation.coordinates) ||
+        dto.reporterLocation.coordinates.length !== 2
+      ) {
+        throw new BadRequestException('Reporter coordinates must be [longitude, latitude]');
+      }
+      const [rLng, rLat] = dto.reporterLocation.coordinates;
+      const isReporterInsideAP = isCoordinateInAndhraPradesh(rLat, rLng);
+
+      // Verify declared status matches calculated coordinates
+      if (!isReporterInsideAP || dto.reporterLocation.eligibilityStatus === GpsEligibilityStatus.OUTSIDE_AP) {
+        throw new BadRequestException(
+          `Detected reporter location [${rLng}, ${rLat}] is outside Andhra Pradesh jurisdiction. Submissions from outside the state are prohibited.`
+        );
+      }
+
+      reporterLocationDoc = {
+        coordinates: [rLng, rLat],
+        eligibilityStatus: isReporterInsideAP ? 'INSIDE_AP' : 'OUTSIDE_AP',
+        accuracyMeters: dto.reporterLocation.accuracyMeters,
+      };
+    }
 
     const now = new Date();
     const reportId = uuidv4();
@@ -80,11 +145,16 @@ export class ReportsService {
       title: dto.title.trim(),
       description: dto.description.trim(),
       category: dto.category,
-      location: {
-        type: 'Point',
-        coordinates: [dto.location.coordinates[0], dto.location.coordinates[1]],
-      },
+      location: locationDoc,
       locationDescription: dto.locationDescription?.trim(),
+      administrativeContext: dto.administrativeContext
+        ? {
+            districtId: dto.administrativeContext.districtId,
+            mandalId: dto.administrativeContext.mandalId,
+            localityId: dto.administrativeContext.localityId,
+          }
+        : undefined,
+      reporterLocation: reporterLocationDoc,
       media: validatedMedia,
       status: ReportStatus.SUBMITTED,
       statusHistory: [initialTransition],
@@ -169,18 +239,27 @@ export class ReportsService {
     const maxRadius = Math.min(50000, Number(query.radiusMeters) || 5000);
     const limit = Math.min(100, Number(query.limit) || 50);
 
-    const docs = await this.db.reports
-      .find({
-        location: {
-          $near: {
-            $geometry: {
-              type: 'Point',
-              coordinates: [Number(query.longitude), Number(query.latitude)],
-            },
-            $maxDistance: maxRadius,
+    const filter: any = {
+      location: {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [Number(query.longitude), Number(query.latitude)],
           },
+          $maxDistance: maxRadius,
         },
-      })
+      },
+    };
+
+    if (query.category) {
+      filter.category = query.category;
+    }
+    if (query.status) {
+      filter.status = query.status;
+    }
+
+    const docs = await this.db.reports
+      .find(filter)
       .limit(limit)
       .toArray();
 
@@ -290,6 +369,7 @@ export class ReportsService {
       actorRole: actor.role,
       reason: dto.reason?.trim(),
       timestamp: now,
+      notificationDispatched: false,
     };
 
     const updateFields: any = {
@@ -336,6 +416,51 @@ export class ReportsService {
       `Report ${id} transitioned atomically from ${currentStatus} to ${targetStatus} by ${actor.sub} (${actor.role})`,
     );
 
+    // Dispatch status change event and atomically record acknowledgement
+    try {
+      const delivered = await dispatchNotificationEvent({
+        notificationsServiceUrl: this.notificationsServiceUrl,
+        internalServiceToken: this.internalServiceKey,
+        eventId: transitionRecord.transitionId,
+        eventType: NotificationEventType.REPORT_STATUS_CHANGED,
+        aggregateId: id,
+        payload: {
+          reportId: id,
+          reportTitle: report.title,
+          authorId: report.authorId,
+          previousStatus: currentStatus,
+          newStatus: targetStatus,
+          updatedByUserId: actor.sub,
+          reason: dto.reason?.trim(),
+        },
+        logger: this.logger,
+      });
+
+      if (delivered) {
+        await this.db.reports.updateOne(
+          { _id: id, 'statusHistory.transitionId': transitionRecord.transitionId },
+          {
+            $set: {
+              'statusHistory.$.notificationDispatched': true,
+              'statusHistory.$.notificationDispatchedAt': new Date(),
+            },
+          },
+        );
+      } else {
+        await this.db.reports.updateOne(
+          { _id: id, 'statusHistory.transitionId': transitionRecord.transitionId },
+          {
+            $set: {
+              'statusHistory.$.notificationDispatched': false,
+              'statusHistory.$.notificationDispatchError': 'Transient delivery failure',
+            },
+          },
+        );
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed to dispatch status event for report ${id}: ${err.message}`);
+    }
+
     const updated = await this.db.reports.findOne({ _id: id });
     return this.mapToDto(updated!);
   }
@@ -351,6 +476,54 @@ export class ReportsService {
     if (typeof lat !== 'number' || lat < -90 || lat > 90) {
       throw new BadRequestException(`Latitude must be between -90 and 90. Received: ${lat}`);
     }
+    if (!isCoordinateInAndhraPradesh(lat, lng)) {
+      throw new BadRequestException(
+        `Issue coordinates [${lng}, ${lat}] are outside Andhra Pradesh jurisdiction. CivicPulse strictly accepts reports within Andhra Pradesh.`
+      );
+    }
+  }
+
+  async updateReportUrgency(
+    id: string,
+    dto: UpdateReportUrgencyDto,
+    currentUser: JwtTokenPayload,
+  ): Promise<ReportDto> {
+    const report = await this.db.reports.findOne({ _id: id });
+    if (!report) {
+      throw new NotFoundException(`Report with id "${id}" not found`);
+    }
+
+    // Strictly authorize: Only verified administrative authority staff or admins can update urgency
+    const isAuthorizedStaff =
+      currentUser.role === UserRole.ADMIN ||
+      currentUser.role === UserRole.MODERATOR;
+
+    if (!isAuthorizedStaff) {
+      throw new ForbiddenException(
+        `Only authorized municipal administrators or moderators can update report urgency to "${dto.urgency}". Residents cannot assign or escalate issue urgency.`
+      );
+    }
+
+    const now = new Date();
+    await this.db.reports.updateOne(
+      { _id: id },
+      {
+        $set: {
+          urgency: dto.urgency as any,
+          urgencyConfirmedBy: currentUser.sub,
+          urgencyConfirmedAt: now,
+          urgencyConfirmationReason: dto.reason.trim(),
+          updatedAt: now,
+        },
+      }
+    );
+
+    this.logger.log(
+      `Report ${id} urgency updated to ${dto.urgency} by ${currentUser.sub} (${currentUser.role})`
+    );
+
+    const updated = await this.db.reports.findOne({ _id: id });
+    return this.mapToDto(updated!);
   }
 
   private mapToDto(doc: ReportDocument): ReportDto {
@@ -360,15 +533,29 @@ export class ReportsService {
       title: doc.title,
       description: doc.description,
       category: doc.category,
-      location: {
-        type: 'Point',
-        // 4 decimal places location-precision policy (~11 meters) for privacy
-        coordinates: [
-          Math.round(doc.location.coordinates[0] * 10000) / 10000,
-          Math.round(doc.location.coordinates[1] * 10000) / 10000,
-        ],
-      },
+      urgency: doc.urgency ? (doc.urgency as ReportUrgency) : undefined,
+      urgencyConfirmedBy: doc.urgencyConfirmedBy,
+      urgencyConfirmedAt: doc.urgencyConfirmedAt?.toISOString(),
+      urgencyConfirmationReason: doc.urgencyConfirmationReason,
+      location: doc.location
+        ? {
+            type: 'Point',
+            // 4 decimal places location-precision policy (~11 meters) for privacy
+            coordinates: [
+              Math.round(doc.location.coordinates[0] * 10000) / 10000,
+              Math.round(doc.location.coordinates[1] * 10000) / 10000,
+            ],
+          }
+        : undefined,
       locationDescription: doc.locationDescription,
+      administrativeContext: doc.administrativeContext,
+      reporterLocation: doc.reporterLocation
+        ? {
+            coordinates: doc.reporterLocation.coordinates,
+            eligibilityStatus: doc.reporterLocation.eligibilityStatus as any,
+            accuracyMeters: doc.reporterLocation.accuracyMeters,
+          }
+        : undefined,
       media: this.mediaService.mapMediaDocsToDto(doc.media),
       status: doc.status,
       statusHistory: (doc.statusHistory || []).map((s) => ({
@@ -388,5 +575,69 @@ export class ReportsService {
       createdAt: doc.createdAt.toISOString(),
       updatedAt: doc.updatedAt.toISOString(),
     };
+  }
+
+  /**
+   * Scans and recovers pending status transitions whose notification delivery was interrupted or failed.
+   */
+  async recoverPendingEvents(limit = 50): Promise<{ scanned: number; recovered: number; failed: number }> {
+    const reportsWithPending = await this.db.reports
+      .find({
+        statusHistory: {
+          $elemMatch: {
+            notificationDispatched: false,
+          },
+        },
+      })
+      .limit(limit)
+      .toArray();
+
+    let scanned = 0;
+    let recovered = 0;
+    let failed = 0;
+
+    for (const report of reportsWithPending) {
+      for (const transition of report.statusHistory) {
+        if (transition.notificationDispatched === false) {
+          scanned++;
+          const delivered = await dispatchNotificationEvent({
+            notificationsServiceUrl: this.notificationsServiceUrl,
+            internalServiceToken: this.internalServiceKey,
+            eventId: transition.transitionId,
+            eventType: NotificationEventType.REPORT_STATUS_CHANGED,
+            aggregateId: report._id,
+            payload: {
+              reportId: report._id,
+              reportTitle: report.title,
+              authorId: report.authorId,
+              previousStatus: transition.previousStatus,
+              newStatus: transition.newStatus,
+              updatedByUserId: transition.actorUserId,
+              reason: transition.reason,
+            },
+            logger: this.logger,
+          });
+
+          if (delivered) {
+            await this.db.reports.updateOne(
+              { _id: report._id, 'statusHistory.transitionId': transition.transitionId },
+              {
+                $set: {
+                  'statusHistory.$.notificationDispatched': true,
+                  'statusHistory.$.notificationDispatchedAt': new Date(),
+                  'statusHistory.$.notificationDispatchError': undefined,
+                },
+              },
+            );
+            recovered++;
+            this.logger.log(`Recovered and delivered pending event for transition ${transition.transitionId}`);
+          } else {
+            failed++;
+          }
+        }
+      }
+    }
+
+    return { scanned, recovered, failed };
   }
 }

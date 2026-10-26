@@ -34,8 +34,24 @@ export interface JwtTokenPayload {
   email: string;
   role: UserRole;
   sessionId: string;
+  tokenVersion?: number;
   iss: string;
   aud: string;
   iat?: number;
   exp?: number;
+}
+
+export interface RegisterDto {
+  email: string;
+  password: string;
+  displayName: string;
+}
+
+export interface LoginDto {
+  email: string;
+  password: string;
+}
+
+export interface RefreshTokenDto {
+  refreshToken: string;
 }

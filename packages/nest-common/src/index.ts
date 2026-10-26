@@ -14,3 +14,5 @@ export * from './auth/guards/jwt-auth.guard.js';
 export * from './auth/guards/roles.guard.js';
 export * from './auth/guards/internal-service.guard.js';
 export * from './auth/crypto.utils.js';
+export * from './auth/token-revocation.checker.js';
+export * from './events/event-dispatcher.helper.js';

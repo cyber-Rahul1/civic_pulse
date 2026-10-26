@@ -6,11 +6,13 @@ import { UserRole, AccountStatus } from '@civic-pulse/contracts';
 import { CivicLogger } from '@civic-pulse/nest-common';
 import { AuthService } from './auth.service';
 import { TokenService } from './token.service';
+import { RevocationRegistryService } from './revocation-registry.service';
 import { DatabaseService } from '../database/database.service';
 
 describe('AuthService Integration & Logic Tests', () => {
   let authService: AuthService;
   let tokenService: TokenService;
+  let mockRevocation: any;
 
   // In-memory mock stores to test business logic and concurrency
   const usersStore = new Map<string, any>();
@@ -130,11 +132,20 @@ describe('AuthService Integration & Logic Tests', () => {
             }),
           },
         },
+        {
+          provide: RevocationRegistryService,
+          useValue: {
+            revokeUser: jest.fn().mockResolvedValue(undefined),
+            revokeUserVersion: jest.fn().mockResolvedValue(undefined),
+            revokeSession: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
     authService = module.get<AuthService>(AuthService);
     tokenService = module.get<TokenService>(TokenService);
+    mockRevocation = module.get<RevocationRegistryService>(RevocationRegistryService);
     tokenService.onModuleInit();
   });
 
@@ -313,6 +324,47 @@ describe('AuthService Integration & Logic Tests', () => {
       for (const s of sessionsStore.values()) {
         expect(s.isRevoked).toBe(true);
       }
+    });
+
+    it('should revoke active sessions and refresh tokens when user role changes', async () => {
+      const reg = await authService.register({
+        email: 'rolechange@example.com',
+        password: 'ValidPassword123!',
+        displayName: 'Role Change Test',
+      });
+      const loginRes = await authService.login({
+        email: 'rolechange@example.com',
+        password: 'ValidPassword123!',
+      });
+
+      expect(loginRes.user.role).toBe(UserRole.RESIDENT);
+
+      // Elevate role to AUTHORITY
+      const updated = await authService.updateUserRole(reg.id, UserRole.AUTHORITY);
+      expect(updated.role).toBe(UserRole.AUTHORITY);
+
+      // Previous session must be revoked
+      const payload = tokenService.verifyAccessToken(loginRes.tokens.accessToken);
+      const session = sessionsStore.get(payload.sessionId);
+      expect(session.isRevoked).toBe(true);
+      expect(session.revocationReason).toContain('role changed');
+
+      // Refresh using old token must now fail
+      await expect(
+        authService.refresh({ refreshToken: loginRes.tokens.refreshToken }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      // Verify that revocation registry published user revocation timestamp and incremented tokenVersion
+      expect(mockRevocation.revokeUser).toHaveBeenCalledWith(
+        reg.id,
+        expect.any(Number),
+        900,
+      );
+      expect(mockRevocation.revokeUserVersion).toHaveBeenCalledWith(
+        reg.id,
+        2,
+        900,
+      );
     });
   });
 });

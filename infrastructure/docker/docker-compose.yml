@@ -24,7 +24,7 @@ services:
     image: redis:7.2-alpine
     container_name: civic_redis
     restart: unless-stopped
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-redis_dev_secret_password}", "--appendonly", "yes"]
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-redis_dev_secret_password}", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
     ports:
       - "127.0.0.1:${REDIS_PORT:-6380}:6379"
     volumes:

@@ -22,6 +22,7 @@ import {
   Roles,
   CurrentUser,
   Public,
+  InternalServiceGuard,
 } from '@civic-pulse/nest-common';
 import {
   ReportDto,
@@ -35,6 +36,7 @@ import { MediaService } from '../media/media.service.js';
 import {
   CreateReportDto,
   UpdateReportDto,
+  UpdateReportUrgencyDto,
   TransitionStatusDto,
   QueryReportsDto,
   NearbyReportsDto,
@@ -143,6 +145,22 @@ export class ReportsController {
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.MODERATOR)
+  @ApiBearerAuth('JWT-auth')
+  @Patch('reports/:id/urgency')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update and confirm report urgency level (Municipal Admins/Moderators only)' })
+  @SwaggerResponse({ status: 200, description: 'Urgency updated successfully' })
+  @SwaggerResponse({ status: 403, description: 'Forbidden - residents cannot update or escalate urgency' })
+  async updateReportUrgency(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtTokenPayload,
+    @Body() dto: UpdateReportUrgencyDto,
+  ): Promise<ReportDto> {
+    return this.reportsService.updateReportUrgency(id, dto, user);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiBearerAuth('JWT-auth')
   @Post('reports/:id/resolve')
@@ -164,5 +182,33 @@ export class ReportsController {
       },
       user,
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal Service-to-Service Verification Endpoint
+  // ---------------------------------------------------------------------------
+  @Get('internal/reports/:id/exists')
+  @ApiOperation({ summary: 'Verify report existence for upstream services (Internal S2S)' })
+  async checkReportExists(
+    @Param('id') id: string,
+  ): Promise<{ exists: boolean; reportId: string; authorId?: string; title?: string }> {
+    try {
+      const report = await this.reportsService.getReportById(id);
+      return {
+        exists: !!report,
+        reportId: id,
+        authorId: report?.authorId,
+        title: report?.title,
+      };
+    } catch {
+      return { exists: false, reportId: id };
+    }
+  }
+
+  @Post('internal/reports/events/recover')
+  @UseGuards(InternalServiceGuard)
+  @ApiOperation({ summary: 'Recover and retry pending status transition notification events (Internal S2S)' })
+  async recoverPendingEvents(): Promise<{ scanned: number; recovered: number; failed: number }> {
+    return this.reportsService.recoverPendingEvents();
   }
 }

@@ -38,3 +38,15 @@ Thumbs.db
 # Coverage and test output
 coverage/
 .nyc_output/
+
+# Expo
+.expo/
+
+# Temporary test captures, dumps & screenshots
+*.png
+*.xml
+*.jsonl
+andhra_*_raw.json
+andhra_state_osm.json
+andhra_13_districts.json
+simplified_ap_geo.json
