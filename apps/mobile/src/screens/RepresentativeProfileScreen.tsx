@@ -179,9 +179,25 @@ export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenPr
                 {profile.termStatus === 'CURRENT' ? '● Active Term' : 'Former Representative'}
               </Text>
             </View>
-            <View style={styles.pillVerified}>
-              <Text style={styles.pillVerifiedText}>
-                {profile.verificationStatus === 'VERIFIED_OFFICIAL' ? '✓ Official ECI Record' : 'Public Record'}
+            <View
+              style={[
+                styles.pillVerified,
+                profile.verificationStatus === 'FLAGGED_FOR_REVIEW' && styles.pillFlagged,
+                profile.verificationStatus === 'PUBLIC_RECORD' && styles.pillPublicRecord,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.pillVerifiedText,
+                  profile.verificationStatus === 'FLAGGED_FOR_REVIEW' && styles.pillFlaggedText,
+                  profile.verificationStatus === 'PUBLIC_RECORD' && styles.pillPublicRecordText,
+                ]}
+              >
+                {profile.verificationStatus === 'VERIFIED_OFFICIAL'
+                  ? '✓ Official Verified'
+                  : profile.verificationStatus === 'FLAGGED_FOR_REVIEW'
+                  ? '⚠️ Pending Review'
+                  : 'Public Record'}
               </Text>
             </View>
           </View>
@@ -554,6 +570,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: typography.weights.bold,
     color: '#166534',
+  },
+  pillFlagged: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FFEDD5',
+  },
+  pillFlaggedText: {
+    color: '#9A3412',
+  },
+  pillPublicRecord: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
+  pillPublicRecordText: {
+    color: '#475569',
   },
   lastVerifiedText: {
     fontSize: 10,

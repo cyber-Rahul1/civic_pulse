@@ -556,7 +556,13 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
             return res;
           }),
         })),
-        countDocuments: jest.fn().mockImplementation(async () => representatives.length),
+        countDocuments: jest.fn().mockImplementation(async (filter?: any) => {
+          if (!filter) return representatives.length;
+          let res = representatives;
+          if (filter.termStatus) res = res.filter((x) => x.termStatus === filter.termStatus);
+          if (filter.verificationStatus) res = res.filter((x) => x.verificationStatus === filter.verificationStatus);
+          return res.length;
+        }),
       };
 
       (mockDbService as any).reportAssociations = {
@@ -695,11 +701,13 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
       const summary1 = await service.syncOfficialRepresentativeData();
       expect(summary1.createdCount).toBeGreaterThan(0);
       expect(summary1.rejectedCount).toBe(0);
+      expect(summary1.reviewRequiredCount).toBe(10); // 10 unconfirmed URLs flagged for manual review
 
       const count1 = representatives.length;
       // Second sync must be idempotent
       const summary2 = await service.syncOfficialRepresentativeData();
       expect(summary2.unchangedCount).toBe(count1);
+      expect(summary2.reviewRequiredCount).toBe(10);
       expect(representatives.length).toBe(count1);
     });
 
@@ -813,6 +821,12 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
       expect(coverage.wardLevelExactMappingAvailable).toBe(false);
       expect(coverage.wardLevelCoverageScope).toBe('PILOT_PARTIAL');
       expect(coverage.dataCompletenessNotes).toContain('covers 5 of 28 Andhra Pradesh districts');
+
+      // Disclose verified, flagged, and historical breakdowns honestly
+      expect(coverage.verifiedOfficialRepresentativesCount).toBe(3); // 3 MPs confirmed via Digital Sansad
+      expect(coverage.flaggedForReviewRepresentativesCount).toBe(10); // 6 MLAs + 4 municipal reps flagged due to 404 crawl
+      expect(coverage.publicRecordRepresentativesCount).toBe(1); // 1 historical MP public record
+      expect(coverage.historicalRepresentativesCount).toBe(5); // 2 mayors + 2 corporators + 1 former MP
     });
 
     it('7. should deduplicate report associations idempotently on repeated matching calls', async () => {
@@ -972,6 +986,9 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
       const ward65 = await service.getRepresentativeById('rep_ward_gvmc_65_councillor');
       expect(ward65.termStatus).toBe('FORMER');
       expect(ward65.termEndDate).toBe('2026-03-17T00:00:00.000Z');
+      expect(ward65.verificationStatus).toBe('FLAGGED_FOR_REVIEW');
+      expect(ward65.sourceProvenance?.notes).toContain('identity discrepancy noted');
+      expect(ward65.sourceProvenance?.notes).toContain('Boddu Narsimhapatrudu');
 
       // Verify directory filter termStatus=CURRENT excludes term-expired municipal representatives
       const currentListing = await service.queryRepresentatives({

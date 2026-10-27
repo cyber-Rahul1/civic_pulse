@@ -46,6 +46,7 @@ import {
   JurisdictionDto,
   RepresentativeOfficeType,
   RepresentativeTermStatus,
+  RepresentativeVerificationStatus,
   ProfileClaimStatus,
   JurisdictionType,
   ReportRepresentativeRelationType,
@@ -991,7 +992,7 @@ export class AuthorityService {
       updatedCount,
       unchangedCount,
       rejectedCount: 0,
-      reviewRequiredCount: 0,
+      reviewRequiredCount: coverageReport.flaggedForReviewRepresentativesCount || 0,
       timestamp: now.toISOString(),
       coverageReport,
     };
@@ -1007,6 +1008,10 @@ export class AuthorityService {
       wardsCount,
       totalRepresentatives,
       activeRepresentatives,
+      verifiedOfficialCount,
+      flaggedForReviewCount,
+      publicRecordCount,
+      historicalRepresentativesCount,
     ] = await Promise.all([
       this.db.jurisdictions.countDocuments(),
       this.db.jurisdictions.countDocuments({ type: JurisdictionType.DISTRICT }),
@@ -1016,6 +1021,10 @@ export class AuthorityService {
       this.db.jurisdictions.countDocuments({ type: JurisdictionType.WARD }),
       this.db.representatives.countDocuments(),
       this.db.representatives.countDocuments({ termStatus: RepresentativeTermStatus.CURRENT }),
+      this.db.representatives.countDocuments({ verificationStatus: RepresentativeVerificationStatus.VERIFIED_OFFICIAL }),
+      this.db.representatives.countDocuments({ verificationStatus: RepresentativeVerificationStatus.FLAGGED_FOR_REVIEW }),
+      this.db.representatives.countDocuments({ verificationStatus: RepresentativeVerificationStatus.PUBLIC_RECORD }),
+      this.db.representatives.countDocuments({ termStatus: RepresentativeTermStatus.FORMER }),
     ]);
 
     return {
@@ -1030,6 +1039,10 @@ export class AuthorityService {
       totalJurisdictions,
       totalRepresentatives,
       activeRepresentatives,
+      verifiedOfficialRepresentativesCount: verifiedOfficialCount,
+      flaggedForReviewRepresentativesCount: flaggedForReviewCount,
+      publicRecordRepresentativesCount: publicRecordCount,
+      historicalRepresentativesCount,
       dataCompletenessNotes:
         'Official coverage currently covers 5 of 28 Andhra Pradesh districts (Visakhapatnam, NTR, Guntur, Tirupati, Kurnool) and 3 pilot municipal wards. Ward boundaries require official CDMA GIS shapefiles; approximate boundaries are never inferred to prevent spurious ward councillor assignments.',
     };

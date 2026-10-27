@@ -129,8 +129,12 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
               <Text style={styles.repName} numberOfLines={1}>
                 {item.publicName}
               </Text>
-              {item.verificationStatus === 'VERIFIED_OFFICIAL' && (
+              {item.verificationStatus === 'VERIFIED_OFFICIAL' ? (
                 <Text style={styles.verifiedCheck}>✓ Official</Text>
+              ) : item.verificationStatus === 'FLAGGED_FOR_REVIEW' ? (
+                <Text style={styles.flaggedCheck}>⚠️ Pending Review</Text>
+              ) : (
+                <Text style={styles.publicRecordCheck}>Public Record</Text>
               )}
             </View>
 
@@ -152,8 +156,8 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
             <Text style={styles.partyText}>{item.partyAffiliation || 'Independent'}</Text>
           </View>
 
-          <View style={styles.termBadge}>
-            <Text style={styles.termText}>
+          <View style={[styles.termBadge, item.termStatus === 'FORMER' && styles.termBadgeFormer]}>
+            <Text style={[styles.termText, item.termStatus === 'FORMER' && styles.termTextFormer]}>
               {item.termStatus === 'CURRENT' ? '● In Office' : 'Former'}
             </Text>
           </View>
@@ -421,6 +425,24 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderRadius: 4,
   },
+  flaggedCheck: {
+    fontSize: 10,
+    fontWeight: typography.weights.bold,
+    color: '#9A3412',
+    backgroundColor: '#FFEDD5',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  publicRecordCheck: {
+    fontSize: 10,
+    fontWeight: typography.weights.medium,
+    color: '#475569',
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
   repDesignation: {
     fontSize: typography.sizes.xs,
     color: colors.textSecondary,
@@ -467,10 +489,16 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 4,
   },
+  termBadgeFormer: {
+    backgroundColor: '#F1F5F9',
+  },
   termText: {
     fontSize: 11,
     fontWeight: typography.weights.medium,
     color: '#15803D',
+  },
+  termTextFormer: {
+    color: '#64748B',
   },
   viewProfileLink: {
     marginLeft: 'auto',

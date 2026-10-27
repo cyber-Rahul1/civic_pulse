@@ -157,6 +157,12 @@ export interface RepresentativeImportSummaryDto {
     wardsWithActualBoundariesCount: number;
     wardLevelExactMappingAvailable: boolean;
     wardLevelCoverageScope: 'PILOT_PARTIAL' | 'STATEWIDE_COMPLETE';
+    totalRepresentatives?: number;
+    activeRepresentatives?: number;
+    verifiedOfficialRepresentativesCount?: number;
+    flaggedForReviewRepresentativesCount?: number;
+    publicRecordRepresentativesCount?: number;
+    historicalRepresentativesCount?: number;
     dataCompletenessNotes: string;
   };
 }
