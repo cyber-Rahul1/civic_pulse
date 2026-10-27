@@ -487,7 +487,17 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
         find: jest.fn().mockImplementation(() => ({
           toArray: jest.fn().mockResolvedValue(jurisdictions),
         })),
-        findOne: jest.fn().mockImplementation(async (f) => jurisdictions.find((x) => x._id === f._id) || null),
+        findOne: jest.fn().mockImplementation(async (f) => {
+          if (f._id) return jurisdictions.find((x) => x._id === f._id) || null;
+          return (
+            jurisdictions.find((x) => {
+              if (f.type && x.type !== f.type) return false;
+              if (f.districtId && x.districtId !== f.districtId) return false;
+              if (f.mandalId && x.mandalId !== f.mandalId) return false;
+              return true;
+            }) || null
+          );
+        }),
         countDocuments: jest.fn().mockImplementation(async (filter: any) => {
           let res = jurisdictions;
           if (filter?.type) res = res.filter((x) => x.type === filter.type);
@@ -536,7 +546,13 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
             let res = representatives;
             if (filter.officeType) res = res.filter((x) => x.officeType === filter.officeType);
             if (filter.termStatus) res = res.filter((x) => x.termStatus === filter.termStatus);
-            if (filter.jurisdictionId?.$in) res = res.filter((x) => filter.jurisdictionId.$in.includes(x.jurisdictionId));
+            if (filter.jurisdictionId) {
+              if (filter.jurisdictionId.$in) {
+                res = res.filter((x) => filter.jurisdictionId.$in.includes(x.jurisdictionId));
+              } else {
+                res = res.filter((x) => x.jurisdictionId === filter.jurisdictionId);
+              }
+            }
             return res;
           }),
         })),
@@ -923,22 +939,78 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
       }
     });
 
-    it('10. should verify municipal incumbents remain active for November 2026 elections and preserve history', async () => {
+    it('10. should verify municipal council expiration, Special Officer transition, and FORMER term status', async () => {
       await service.syncOfficialRepresentativeData();
 
+      // GVMC Mayor (term ended March 17, 2026)
       const gvmcMayor = await service.getRepresentativeById('rep_mayor_gvmc');
-      expect(gvmcMayor.termStatus).toBe('CURRENT');
-      expect(gvmcMayor.sourceProvenance?.notes).toContain('Nov 1, 2026');
+      expect(gvmcMayor.termStatus).toBe('FORMER');
+      expect(gvmcMayor.termEndDate).toBe('2026-03-17T00:00:00.000Z');
+      expect(gvmcMayor.officialDesignation).toContain('Former Mayor');
+      expect(gvmcMayor.sourceProvenance?.notes).toContain('Special Officer');
       expect(gvmcMayor.sourceProvenance?.sourceUrl).toBe('https://cdma.ap.gov.in/en/gvmc-mayoral-council');
 
+      // VMC Mayor (term ended March 17, 2026)
       const vmcMayor = await service.getRepresentativeById('rep_mayor_vmc');
-      expect(vmcMayor.termStatus).toBe('CURRENT');
-      expect(vmcMayor.sourceProvenance?.notes).toContain('Nov 1, 2026');
+      expect(vmcMayor.termStatus).toBe('FORMER');
+      expect(vmcMayor.termEndDate).toBe('2026-03-17T00:00:00.000Z');
+      expect(vmcMayor.officialDesignation).toContain('Former Mayor');
+      expect(vmcMayor.sourceProvenance?.notes).toContain('Special Officer');
       expect(vmcMayor.sourceProvenance?.sourceUrl).toBe('https://cdma.ap.gov.in/en/vmc-mayoral-council');
 
-      // Verify former representatives are retained as FORMER without deletion
-      const formerMp = await service.getRepresentativeById('rep_mla_former_mvv');
-      expect(formerMp.termStatus).toBe('FORMER');
+      // Ward Corporators (term ended March 17, 2026)
+      const ward12 = await service.getRepresentativeById('rep_ward_gvmc_12_councillor');
+      expect(ward12.termStatus).toBe('FORMER');
+      expect(ward12.termEndDate).toBe('2026-03-17T00:00:00.000Z');
+
+      const ward65 = await service.getRepresentativeById('rep_ward_gvmc_65_councillor');
+      expect(ward65.termStatus).toBe('FORMER');
+      expect(ward65.termEndDate).toBe('2026-03-17T00:00:00.000Z');
+
+      // Verify directory filter termStatus=CURRENT excludes term-expired municipal representatives
+      const currentListing = await service.queryRepresentatives({
+        termStatus: 'CURRENT' as any,
+      });
+      const currentIds = currentListing.items.map((r: any) => r.id);
+      expect(currentIds).not.toContain('rep_mayor_gvmc');
+      expect(currentIds).not.toContain('rep_mayor_vmc');
+      expect(currentIds).not.toContain('rep_ward_gvmc_12_councillor');
+      expect(currentIds).not.toContain('rep_ward_gvmc_65_councillor');
+
+      // Verify former representatives remain accessible directly for historical accountability
+      const formerListing = await service.queryRepresentatives({
+        termStatus: 'FORMER' as any,
+      });
+      const formerIds = formerListing.items.map((r: any) => r.id);
+      expect(formerIds).toContain('rep_mayor_gvmc');
+      expect(formerIds).toContain('rep_mayor_vmc');
+      expect(formerIds).toContain('rep_mla_former_mvv');
+    });
+
+    it('11. should verify exact Digital Sansad parliamentary person records for MPs', async () => {
+      await service.syncOfficialRepresentativeData();
+
+      const mps = [
+        {
+          id: 'rep_mp_sribharat',
+          expectedUrl: 'https://sansad.in/ls/members/biography/5623?from=members',
+        },
+        {
+          id: 'rep_mp_kesineni_chinni',
+          expectedUrl: 'https://sansad.in/ls/members/biography/5667?from=members',
+        },
+        {
+          id: 'rep_mp_pemmasani',
+          expectedUrl: 'https://sansad.in/ls/members/biography/5636?from=members',
+        },
+      ];
+
+      for (const item of mps) {
+        const mp = await service.getRepresentativeById(item.id);
+        expect(mp).toBeDefined();
+        expect(mp.sourceProvenance?.sourceUrl).toBe(item.expectedUrl);
+        expect(mp.verificationStatus).toBe('VERIFIED_OFFICIAL');
+      }
     });
   });
 });

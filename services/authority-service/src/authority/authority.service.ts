@@ -949,7 +949,8 @@ export class AuthorityService {
           existing.partyAffiliation !== rep.partyAffiliation ||
           existing.jurisdictionName !== rep.jurisdictionName ||
           existing.verificationStatus !== rep.verificationStatus ||
-          existing.sourceProvenance?.sourceUrl !== rep.sourceProvenance?.sourceUrl;
+          existing.sourceProvenance?.sourceUrl !== rep.sourceProvenance?.sourceUrl ||
+          existing.termEndDate?.getTime() !== rep.termEndDate?.getTime();
 
         if (hasChange) {
           await this.db.representatives.updateOne(
@@ -962,8 +963,11 @@ export class AuthorityService {
                 jurisdictionName: rep.jurisdictionName,
                 verificationStatus: rep.verificationStatus,
                 biography: rep.biography || existing.biography,
+                termStartDate: rep.termStartDate || existing.termStartDate,
+                termEndDate: rep.termEndDate,
                 sourceProvenance: rep.sourceProvenance,
                 lastVerifiedAt: rep.lastVerifiedAt,
+                contactDetails: rep.contactDetails || existing.contactDetails,
                 updatedAt: now,
               },
             },
