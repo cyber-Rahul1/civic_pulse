@@ -929,7 +929,9 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
         expect(rep.jurisdictionName).toBe(expected.constituencyName);
         expect(rep.jurisdictionName).toContain(expected.constituencyNum);
         expect(rep.sourceProvenance?.sourceUrl).toBe(expected.url);
-        expect(rep.verificationStatus).toBe('VERIFIED_OFFICIAL');
+        // Direct member URLs returned 404 on automated crawl; flagged for review rather than claimed verified
+        expect(rep.verificationStatus).toBe('FLAGGED_FOR_REVIEW');
+        expect(rep.sourceProvenance?.notes).toContain('Pending review: Direct member URL returned HTTP 404');
 
         // Verify jurisdiction doc directly
         const jur = await (mockDbService as any).jurisdictions.findOne({ _id: rep.jurisdictionId });
@@ -942,20 +944,24 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
     it('10. should verify municipal council expiration, Special Officer transition, and FORMER term status', async () => {
       await service.syncOfficialRepresentativeData();
 
-      // GVMC Mayor (term ended March 17, 2026)
+      // GVMC Mayor (term ended March 17, 2026, extended September 2026)
       const gvmcMayor = await service.getRepresentativeById('rep_mayor_gvmc');
       expect(gvmcMayor.termStatus).toBe('FORMER');
       expect(gvmcMayor.termEndDate).toBe('2026-03-17T00:00:00.000Z');
       expect(gvmcMayor.officialDesignation).toContain('Former Mayor');
+      expect(gvmcMayor.verificationStatus).toBe('FLAGGED_FOR_REVIEW');
       expect(gvmcMayor.sourceProvenance?.notes).toContain('Special Officer');
+      expect(gvmcMayor.sourceProvenance?.notes).toContain('extended September 2026');
       expect(gvmcMayor.sourceProvenance?.sourceUrl).toBe('https://cdma.ap.gov.in/en/gvmc-mayoral-council');
 
-      // VMC Mayor (term ended March 17, 2026)
+      // VMC Mayor (term ended March 17, 2026, extended September 2026)
       const vmcMayor = await service.getRepresentativeById('rep_mayor_vmc');
       expect(vmcMayor.termStatus).toBe('FORMER');
       expect(vmcMayor.termEndDate).toBe('2026-03-17T00:00:00.000Z');
       expect(vmcMayor.officialDesignation).toContain('Former Mayor');
+      expect(vmcMayor.verificationStatus).toBe('FLAGGED_FOR_REVIEW');
       expect(vmcMayor.sourceProvenance?.notes).toContain('Special Officer');
+      expect(vmcMayor.sourceProvenance?.notes).toContain('extended September 2026');
       expect(vmcMayor.sourceProvenance?.sourceUrl).toBe('https://cdma.ap.gov.in/en/vmc-mayoral-council');
 
       // Ward Corporators (term ended March 17, 2026)
