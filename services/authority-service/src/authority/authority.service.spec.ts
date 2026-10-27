@@ -857,5 +857,88 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
       expect(summary.totalAssociatedReports).toBeGreaterThanOrEqual(1);
       expect(summary.resolvedReports).toBeGreaterThanOrEqual(1);
     });
+
+    it('9. should verify official Andhra Pradesh Legislative Assembly constituency numbers and member provenance', async () => {
+      await service.syncOfficialRepresentativeData();
+
+      // Official constituency roster mappings to verify:
+      // - Ganta Srinivasa Rao: Bhimili, AC-20
+      // - Velagapudi Ramakrishna Babu: Visakhapatnam East, AC-21
+      // - Palla Srinivasa Rao: Gajuwaka, AC-25
+      // - Bonda Umamaheswara Rao: Vijayawada Central, AC-80
+      // - Galla Madhavi: Guntur West, AC-94
+
+      const expectedRoster = [
+        {
+          id: 'rep_mla_ghanta',
+          name: 'Ganta Srinivasa Rao',
+          constituencyNum: 'AC-20',
+          constituencyName: 'Bhimili Assembly Constituency (AC-20)',
+          url: 'https://aplegislature.org/members/ac-20-bhimili',
+        },
+        {
+          id: 'rep_mla_velagapudi',
+          name: 'Velagapudi Ramakrishna Babu',
+          constituencyNum: 'AC-21',
+          constituencyName: 'Visakhapatnam East Assembly Constituency (AC-21)',
+          url: 'https://aplegislature.org/members/ac-21-visakhapatnam-east',
+        },
+        {
+          id: 'rep_mla_palla',
+          name: 'Palla Srinivasa Rao',
+          constituencyNum: 'AC-25',
+          constituencyName: 'Gajuwaka Assembly Constituency (AC-25)',
+          url: 'https://aplegislature.org/members/ac-25-gajuwaka',
+        },
+        {
+          id: 'rep_mla_bonda_uma',
+          name: 'Bonda Umamaheswara Rao',
+          constituencyNum: 'AC-80',
+          constituencyName: 'Vijayawada Central Assembly Constituency (AC-80)',
+          url: 'https://aplegislature.org/members/ac-80-vijayawada-central',
+        },
+        {
+          id: 'rep_mla_galla_madhavi',
+          name: 'Galla Madhavi',
+          constituencyNum: 'AC-94',
+          constituencyName: 'Guntur West Assembly Constituency (AC-94)',
+          url: 'https://aplegislature.org/members/ac-94-guntur-west',
+        },
+      ];
+
+      for (const expected of expectedRoster) {
+        const rep = await service.getRepresentativeById(expected.id);
+        expect(rep).toBeDefined();
+        expect(rep.publicName).toBe(expected.name);
+        expect(rep.jurisdictionName).toBe(expected.constituencyName);
+        expect(rep.jurisdictionName).toContain(expected.constituencyNum);
+        expect(rep.sourceProvenance?.sourceUrl).toBe(expected.url);
+        expect(rep.verificationStatus).toBe('VERIFIED_OFFICIAL');
+
+        // Verify jurisdiction doc directly
+        const jur = await (mockDbService as any).jurisdictions.findOne({ _id: rep.jurisdictionId });
+        expect(jur).toBeDefined();
+        expect(jur.name).toBe(expected.constituencyName);
+        expect(jur.provenance?.sourceUrl).toBe(expected.url);
+      }
+    });
+
+    it('10. should verify municipal incumbents remain active for November 2026 elections and preserve history', async () => {
+      await service.syncOfficialRepresentativeData();
+
+      const gvmcMayor = await service.getRepresentativeById('rep_mayor_gvmc');
+      expect(gvmcMayor.termStatus).toBe('CURRENT');
+      expect(gvmcMayor.sourceProvenance?.notes).toContain('Nov 1, 2026');
+      expect(gvmcMayor.sourceProvenance?.sourceUrl).toBe('https://cdma.ap.gov.in/en/gvmc-mayoral-council');
+
+      const vmcMayor = await service.getRepresentativeById('rep_mayor_vmc');
+      expect(vmcMayor.termStatus).toBe('CURRENT');
+      expect(vmcMayor.sourceProvenance?.notes).toContain('Nov 1, 2026');
+      expect(vmcMayor.sourceProvenance?.sourceUrl).toBe('https://cdma.ap.gov.in/en/vmc-mayoral-council');
+
+      // Verify former representatives are retained as FORMER without deletion
+      const formerMp = await service.getRepresentativeById('rep_mla_former_mvv');
+      expect(formerMp.termStatus).toBe('FORMER');
+    });
   });
 });

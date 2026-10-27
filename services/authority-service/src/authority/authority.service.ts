@@ -946,7 +946,10 @@ export class AuthorityService {
         const hasChange =
           existing.officialDesignation !== rep.officialDesignation ||
           existing.termStatus !== rep.termStatus ||
-          existing.partyAffiliation !== rep.partyAffiliation;
+          existing.partyAffiliation !== rep.partyAffiliation ||
+          existing.jurisdictionName !== rep.jurisdictionName ||
+          existing.verificationStatus !== rep.verificationStatus ||
+          existing.sourceProvenance?.sourceUrl !== rep.sourceProvenance?.sourceUrl;
 
         if (hasChange) {
           await this.db.representatives.updateOne(
@@ -956,6 +959,8 @@ export class AuthorityService {
                 officialDesignation: rep.officialDesignation,
                 termStatus: rep.termStatus,
                 partyAffiliation: rep.partyAffiliation,
+                jurisdictionName: rep.jurisdictionName,
+                verificationStatus: rep.verificationStatus,
                 biography: rep.biography || existing.biography,
                 sourceProvenance: rep.sourceProvenance,
                 lastVerifiedAt: rep.lastVerifiedAt,
