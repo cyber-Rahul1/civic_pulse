@@ -8,6 +8,8 @@ import { ReportDetailScreen } from './screens/ReportDetailScreen';
 import { NotificationsScreen } from './screens/NotificationsScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { AuthorityScreen } from './screens/AuthorityScreen';
+import { RepresentativesDirectoryScreen } from './screens/RepresentativesDirectoryScreen';
+import { RepresentativeProfileScreen } from './screens/RepresentativeProfileScreen';
 import { ReportCategory, ReportStatus } from '@civic-pulse/contracts';
 import { MapRegion } from './utils/map-utils';
 import { colors } from './theme/tokens';
@@ -18,7 +20,9 @@ type ScreenState =
   | { name: 'REPORT_DETAIL'; reportId: string }
   | { name: 'NOTIFICATIONS' }
   | { name: 'PROFILE' }
-  | { name: 'AUTHORITY' };
+  | { name: 'AUTHORITY' }
+  | { name: 'REPRESENTATIVES_DIRECTORY' }
+  | { name: 'REPRESENTATIVE_PROFILE'; representativeId: string };
 
 const MainNavigator: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -111,6 +115,27 @@ const MainNavigator: React.FC = () => {
         />
       );
 
+    case 'REPRESENTATIVES_DIRECTORY':
+      return (
+        <RepresentativesDirectoryScreen
+          onBack={() => setCurrentScreen({ name: 'HOME' })}
+          onSelectRepresentative={(repId) =>
+            setCurrentScreen({ name: 'REPRESENTATIVE_PROFILE', representativeId: repId })
+          }
+        />
+      );
+
+    case 'REPRESENTATIVE_PROFILE':
+      return (
+        <RepresentativeProfileScreen
+          representativeId={currentScreen.representativeId}
+          onBack={() => setCurrentScreen({ name: 'REPRESENTATIVES_DIRECTORY' })}
+          onSelectReport={(reportId) =>
+            setCurrentScreen({ name: 'REPORT_DETAIL', reportId })
+          }
+        />
+      );
+
     case 'HOME':
     default:
       return (
@@ -122,6 +147,7 @@ const MainNavigator: React.FC = () => {
           onOpenNotifications={() => setCurrentScreen({ name: 'NOTIFICATIONS' })}
           onOpenProfile={() => setCurrentScreen({ name: 'PROFILE' })}
           onOpenAuthorityWorkflows={() => setCurrentScreen({ name: 'AUTHORITY' })}
+          onOpenRepresentatives={() => setCurrentScreen({ name: 'REPRESENTATIVES_DIRECTORY' })}
           activeTab={activeHomeTab}
           onTabChange={setActiveHomeTab}
           savedMapRegion={savedMapRegion}

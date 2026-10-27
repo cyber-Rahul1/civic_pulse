@@ -1,6 +1,6 @@
 import { ApiClient } from '../api/api-client';
 import { secureStorage } from '../storage/secure-storage';
-import { UserRole, AccountStatus } from '@civic-pulse/contracts';
+import { UserRole, AccountStatus, EvidenceType } from '@civic-pulse/contracts';
 
 describe('ApiClient & Session Lifecycle Unit Tests', () => {
   let client: ApiClient;
@@ -133,4 +133,73 @@ describe('ApiClient & Session Lifecycle Unit Tests', () => {
     expect(await secureStorage.getItemAsync('civic_access_token')).toBeNull();
     expect(await secureStorage.getItemAsync('civic_refresh_token')).toBeNull();
   });
+
+  it('5. should fetch public representative directory and summary', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          items: [
+            {
+              id: 'rep-1',
+              publicName: 'M. Sribharat',
+              officeType: 'MP',
+              officialDesignation: 'Member of Parliament',
+              jurisdictionName: 'Visakhapatnam',
+            },
+          ],
+          meta: { page: 1, limit: 15, totalItems: 1, totalPages: 1 },
+        }),
+    } as any);
+
+    const listRes = await client.listRepresentatives({ officeType: 'MP' as any });
+    expect(listRes.items.length).toBe(1);
+    expect(listRes.items[0]?.publicName).toBe('M. Sribharat');
+  });
+
+  it('6. should submit resolution evidence and retrieve report evidence', async () => {
+    await secureStorage.setItemAsync('civic_access_token', 'sample_auth_token');
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      text: async () =>
+        JSON.stringify({
+          id: 'ev-123',
+          reportId: 'rep-999',
+          evidenceType: EvidenceType.AFTER,
+          verificationStatus: 'PENDING',
+          media: {
+            mediaId: 'm-1',
+            publicId: 'pub-1',
+            url: 'https://res.cloudinary.com/after.jpg',
+            secureUrl: 'https://res.cloudinary.com/after.jpg',
+            format: 'jpg',
+            resourceType: 'image',
+            bytes: 12345,
+            uploadedByUserId: 'user-test-123',
+            createdAt: new Date().toISOString(),
+          },
+        }),
+    } as any);
+
+    const ev = await client.submitResolutionEvidence('rep-999', {
+      evidenceType: EvidenceType.AFTER,
+      media: {
+        mediaId: 'm-1',
+        publicId: 'pub-1',
+        url: 'https://res.cloudinary.com/after.jpg',
+        secureUrl: 'https://res.cloudinary.com/after.jpg',
+        format: 'jpg',
+        resourceType: 'image',
+        bytes: 12345,
+      },
+      description: 'Pothole asphalt repaved and cured',
+    });
+
+    expect(ev.id).toBe('ev-123');
+    expect(ev.evidenceType).toBe(EvidenceType.AFTER);
+  });
 });
+

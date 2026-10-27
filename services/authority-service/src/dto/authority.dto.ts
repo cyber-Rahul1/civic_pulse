@@ -126,3 +126,112 @@ export class CreateReportAssignmentDto {
   @MaxLength(500)
   assignmentReason?: string;
 }
+
+// ============================================================================
+// Public Representatives & Evidence Validation DTOs
+// ============================================================================
+
+export class QueryRepresentativesDto {
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsString()
+  officeType?: string;
+
+  @IsOptional()
+  @IsString()
+  jurisdictionId?: string;
+
+  @IsOptional()
+  @IsString()
+  districtId?: string;
+
+  @IsOptional()
+  @IsString()
+  termStatus?: string;
+
+  @IsOptional()
+  page?: number | string;
+
+  @IsOptional()
+  limit?: number | string;
+}
+
+export class SubmitProfileClaimDtoClass {
+  @IsEmail()
+  @IsNotEmpty()
+  officialEmailUsed!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(10)
+  @MaxLength(1000)
+  proofDetails!: string;
+}
+
+export class ReviewProfileClaimDtoClass {
+  approved!: boolean;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  decisionNotes!: string;
+}
+
+export class UpdateRepresentativeProfileDtoClass {
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  biography?: string;
+
+  @IsOptional()
+  @IsString()
+  photoUrl?: string;
+
+  @IsOptional()
+  contactDetails?: {
+    officeAddress?: string;
+    officialEmail?: string;
+    officialPhone?: string;
+    helplinePhone?: string;
+    officialWebsite?: string;
+    socialHandles?: {
+      twitter?: string;
+      facebook?: string;
+    };
+  };
+}
+
+export class SubmitResolutionEvidenceDtoClass {
+  @IsString()
+  @IsNotEmpty()
+  evidenceType!: 'BEFORE' | 'AFTER';
+
+  @IsNotEmpty()
+  media!: {
+    mediaId: string;
+    publicId: string;
+    url: string;
+    secureUrl: string;
+    format: string;
+    resourceType: 'image' | 'video';
+    bytes: number;
+  };
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+}
+
+export class VerifyResolutionEvidenceDtoClass {
+  verified!: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  rejectionReason?: string;
+}
+

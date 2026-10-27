@@ -39,6 +39,7 @@ describe('NotificationsService', () => {
       }),
       find: jest.fn().mockImplementation((query: any) => ({
         sort: jest.fn().mockReturnThis(),
+        skip: jest.fn().mockReturnThis(),
         limit: jest.fn().mockImplementation((limitCount: number) => ({
           toArray: jest.fn().mockResolvedValue(
             notificationsStore

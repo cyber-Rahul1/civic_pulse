@@ -7,3 +7,4 @@ export * from './community.js';
 export * from './authority.js';
 export * from './notifications.js';
 export * from './locations.js';
+export * from './representatives.js';

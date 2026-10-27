@@ -16,6 +16,7 @@ import {
   CommentDto,
   CommunitySummaryDto,
   PublicAssignmentViewDto,
+  ResolutionEvidenceDto,
 } from '@civic-pulse/contracts';
 import { apiClient } from '../api/api-client';
 import { useAuth } from '../context/auth-context';
@@ -23,6 +24,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ErrorState } from '../components/FeedbackStates';
+import { BeforeAfterEvidence } from '../components/BeforeAfterEvidence';
 import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface ReportDetailScreenProps {
@@ -67,24 +69,27 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
   // Loading & Error
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [evidenceList, setEvidenceList] = useState<ResolutionEvidenceDto[]>([]);
 
   const fetchReportDetails = useCallback(async () => {
     try {
       setError(null);
       setCommentsError(null);
-      const [reportData, historyData, assignmentData, communityData, commentsData] =
+      const [reportData, historyData, assignmentData, communityData, commentsData, evidenceData] =
         await Promise.all([
           apiClient.getReport(reportId),
           apiClient.getReportHistory(reportId).catch(() => []),
           apiClient.getPublicAssignment(reportId).catch(() => null),
           apiClient.getCommunitySummary(reportId).catch(() => null),
           apiClient.listComments(reportId, 1, 10).catch(() => ({ items: [], total: 0, page: 1, totalPages: 1 })),
+          apiClient.getReportEvidence(reportId).catch(() => []),
         ]);
 
       setReport(reportData);
       setHistory(historyData || []);
       setAssignment(assignmentData);
       setCommunitySummary(communityData);
+      setEvidenceList(evidenceData || []);
       const initialComments = commentsData?.items || [];
       setComments(initialComments);
       setCommentsPage(1);
@@ -452,6 +457,13 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
         {/* Issue Description */}
         <Text style={styles.sectionTitle}>Description</Text>
         <Text style={styles.descriptionText}>{report.description}</Text>
+
+        {/* Resolution Before/After Comparison Component */}
+        <BeforeAfterEvidence
+          beforePhotoUrl={report.media && report.media.length > 0 ? (report.media[0]?.secureUrl || report.media[0]?.url || null) : null}
+          afterEvidence={evidenceList.find((e) => e.evidenceType === 'AFTER') || null}
+          onImagePress={(uri) => setSelectedImageUri(uri)}
+        />
 
         {/* Resolution Notes (if resolved) */}
         {report.resolutionNotes && (

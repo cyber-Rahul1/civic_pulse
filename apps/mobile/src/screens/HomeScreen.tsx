@@ -25,6 +25,7 @@ interface HomeScreenProps {
   onOpenNotifications: () => void;
   onOpenProfile: () => void;
   onOpenAuthorityWorkflows?: () => void;
+  onOpenRepresentatives?: () => void;
   activeTab?: 'feed' | 'map';
   onTabChange?: (tab: 'feed' | 'map') => void;
   savedMapRegion?: MapRegion | null;
@@ -44,6 +45,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenNotifications,
   onOpenProfile,
   onOpenAuthorityWorkflows,
+  onOpenRepresentatives,
   activeTab: controlledTab,
   onTabChange,
   savedMapRegion,
@@ -259,6 +261,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </View>
 
         <View style={styles.appBarActions}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={onOpenRepresentatives}
+            accessibilityRole="button"
+            accessibilityLabel="Public Representatives Directory"
+          >
+            <Text style={styles.iconButtonText}>🏛️</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.iconButton}
             onPress={onOpenNotifications}

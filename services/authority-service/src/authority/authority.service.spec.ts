@@ -448,4 +448,414 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
       expect(current?.status).toBe(AssignmentStatus.ASSIGNED);
     });
   });
+
+  // ===========================================================================
+  // Representative Directory, Matching, Evidence & Claims Tests
+  // ===========================================================================
+  describe('Representative Directory & Geographic Matching', () => {
+    const jurisdictions: any[] = [];
+    const representatives: any[] = [];
+    const reportAssociations: any[] = [];
+    const responsibilityRules: any[] = [];
+    const resolutionEvidence: any[] = [];
+    const profileClaims: any[] = [];
+
+    beforeEach(() => {
+      jurisdictions.length = 0;
+      representatives.length = 0;
+      reportAssociations.length = 0;
+      responsibilityRules.length = 0;
+      resolutionEvidence.length = 0;
+      profileClaims.length = 0;
+
+      // Attach collections to mockDbService
+      (mockDbService as any).jurisdictions = {
+        insertOne: jest.fn().mockImplementation(async (doc) => {
+          jurisdictions.push(doc);
+          return { acknowledged: true };
+        }),
+        updateOne: jest.fn().mockImplementation(async (filter, update, opts) => {
+          let j = jurisdictions.find((x) => x._id === filter._id);
+          if (!j && opts?.upsert) {
+            j = { _id: filter._id, ...update.$setOnInsert, ...update.$set };
+            jurisdictions.push(j);
+          } else if (j && update.$set) {
+            Object.assign(j, update.$set);
+          }
+          return { upsertedCount: j ? 1 : 0 };
+        }),
+        find: jest.fn().mockImplementation(() => ({
+          toArray: jest.fn().mockResolvedValue(jurisdictions),
+        })),
+        findOne: jest.fn().mockImplementation(async (f) => jurisdictions.find((x) => x._id === f._id) || null),
+        countDocuments: jest.fn().mockImplementation(async (filter: any) => {
+          let res = jurisdictions;
+          if (filter?.type) res = res.filter((x) => x.type === filter.type);
+          if (filter?.hasBoundaryGeometry !== undefined) res = res.filter((x) => x.hasBoundaryGeometry === filter.hasBoundaryGeometry);
+          return res.length;
+        }),
+      };
+
+      (mockDbService as any).representatives = {
+        insertOne: jest.fn().mockImplementation(async (doc) => {
+          representatives.push(doc);
+          return { acknowledged: true };
+        }),
+        updateOne: jest.fn().mockImplementation(async (filter, update, opts) => {
+          let r = representatives.find((x) => x._id === filter._id);
+          if (!r && opts?.upsert) {
+            r = { _id: filter._id, ...update.$setOnInsert, ...update.$set };
+            representatives.push(r);
+          } else if (r && update.$set) {
+            Object.assign(r, update.$set);
+          }
+          return { upsertedCount: r ? 1 : 0 };
+        }),
+        findOne: jest.fn().mockImplementation(async (f) => {
+          if (f._id) return representatives.find((x) => x._id === f._id) || null;
+          if (f.publicName && f.jurisdictionId && f.officeType) {
+            return (
+              representatives.find(
+                (x) =>
+                  x.publicName === f.publicName &&
+                  x.jurisdictionId === f.jurisdictionId &&
+                  x.officeType === f.officeType,
+              ) || null
+            );
+          }
+          if (f.claimedByUserId) {
+            return representatives.find((x) => x.claimedByUserId === f.claimedByUserId) || null;
+          }
+          return null;
+        }),
+        find: jest.fn().mockImplementation((filter: any) => ({
+          sort: jest.fn().mockReturnThis(),
+          skip: jest.fn().mockReturnThis(),
+          limit: jest.fn().mockReturnThis(),
+          toArray: jest.fn().mockImplementation(async () => {
+            let res = representatives;
+            if (filter.officeType) res = res.filter((x) => x.officeType === filter.officeType);
+            if (filter.termStatus) res = res.filter((x) => x.termStatus === filter.termStatus);
+            if (filter.jurisdictionId?.$in) res = res.filter((x) => filter.jurisdictionId.$in.includes(x.jurisdictionId));
+            return res;
+          }),
+        })),
+        countDocuments: jest.fn().mockImplementation(async () => representatives.length),
+      };
+
+      (mockDbService as any).reportAssociations = {
+        updateOne: jest.fn().mockImplementation(async (filter, update, opts) => {
+          let a = reportAssociations.find(
+            (x) =>
+              x.reportId === filter.reportId &&
+              x.representativeId === filter.representativeId &&
+              x.relationshipType === filter.relationshipType,
+          );
+          let wasUpserted = false;
+          if (!a && opts?.upsert) {
+            a = {
+              _id: `assoc-${Date.now()}-${Math.random()}`,
+              reportId: filter.reportId,
+              representativeId: filter.representativeId,
+              relationshipType: filter.relationshipType,
+              ...update.$setOnInsert,
+              ...update.$set,
+            };
+            reportAssociations.push(a);
+            wasUpserted = true;
+          } else if (a && update.$set) {
+            Object.assign(a, update.$set);
+          }
+          return { upsertedCount: wasUpserted ? 1 : 0 };
+        }),
+        updateMany: jest.fn().mockImplementation(async (filter, update) => {
+          let count = 0;
+          for (const a of reportAssociations) {
+            if (a.reportId === filter.reportId) {
+              if (update.$set) Object.assign(a, update.$set);
+              count++;
+            }
+          }
+          return { modifiedCount: count };
+        }),
+        find: jest.fn().mockImplementation((filter: any) => ({
+          sort: jest.fn().mockReturnThis(),
+          skip: jest.fn().mockReturnThis(),
+          limit: jest.fn().mockReturnThis(),
+          toArray: jest.fn().mockImplementation(async () => {
+            let res = reportAssociations;
+            if (filter.reportId) res = res.filter((x) => x.reportId === filter.reportId);
+            if (filter.representativeId) res = res.filter((x) => x.representativeId === filter.representativeId);
+            if (filter.reportStatus) res = res.filter((x) => x.reportStatus === filter.reportStatus);
+            return res;
+          }),
+        })),
+        countDocuments: jest.fn().mockImplementation(async (filter: any) => {
+          let res = reportAssociations;
+          if (filter.reportId) res = res.filter((x) => x.reportId === filter.reportId);
+          if (filter.representativeId) res = res.filter((x) => x.representativeId === filter.representativeId);
+          if (filter.reportStatus) res = res.filter((x) => x.reportStatus === filter.reportStatus);
+          return res.length;
+        }),
+      };
+
+      (mockDbService as any).responsibilityRules = {
+        updateOne: jest.fn().mockImplementation(async (filter, update, opts) => {
+          let r = responsibilityRules.find(
+            (x) => x.category === filter.category && x.jurisdictionType === filter.jurisdictionType,
+          );
+          if (!r && opts?.upsert) {
+            r = {
+              category: filter.category,
+              jurisdictionType: filter.jurisdictionType,
+              ...update.$setOnInsert,
+              ...update.$set,
+            };
+            responsibilityRules.push(r);
+          } else if (r && update.$set) {
+            Object.assign(r, update.$set);
+          }
+          return { upsertedCount: r ? 1 : 0 };
+        }),
+        find: jest.fn().mockImplementation(() => ({
+          toArray: jest.fn().mockResolvedValue(responsibilityRules),
+        })),
+        findOne: jest.fn().mockImplementation(async (filter: any) => {
+          return (
+            responsibilityRules.find(
+              (r) =>
+                r.category === filter.category &&
+                (!filter.jurisdictionType || r.jurisdictionType === filter.jurisdictionType),
+            ) || null
+          );
+        }),
+      };
+
+      (mockDbService as any).resolutionEvidence = {
+        insertOne: jest.fn().mockImplementation(async (doc) => {
+          resolutionEvidence.push(doc);
+          return { acknowledged: true };
+        }),
+        find: jest.fn().mockImplementation((filter: any) => ({
+          sort: jest.fn().mockReturnThis(),
+          toArray: jest.fn().mockImplementation(async () => {
+            return resolutionEvidence.filter((e) => e.reportId === filter.reportId);
+          }),
+        })),
+        findOne: jest.fn().mockImplementation(async (filter: any) => {
+          return resolutionEvidence.find((e) => e._id === filter._id) || null;
+        }),
+        updateOne: jest.fn().mockImplementation(async (filter: any, update: any) => {
+          const e = resolutionEvidence.find((x) => x._id === filter._id);
+          if (e && update.$set) Object.assign(e, update.$set);
+          return { modifiedCount: 1 };
+        }),
+      };
+
+      (mockDbService as any).profileClaims = {
+        insertOne: jest.fn().mockImplementation(async (doc) => {
+          profileClaims.push(doc);
+          return { acknowledged: true };
+        }),
+        findOne: jest.fn().mockImplementation(async (filter: any) => {
+          return (
+            profileClaims.find(
+              (c) =>
+                (!filter.representativeId || c.representativeId === filter.representativeId) &&
+                (!filter.claimantUserId || c.claimantUserId === filter.claimantUserId) &&
+                (!filter._id || c._id === filter._id),
+            ) || null
+          );
+        }),
+        updateOne: jest.fn().mockImplementation(async (filter: any, update: any) => {
+          const c = profileClaims.find((x) => x._id === filter._id);
+          if (c && update.$set) Object.assign(c, update.$set);
+          return { modifiedCount: 1 };
+        }),
+      };
+    });
+
+    it('1. should sync verified official public representatives and prevent duplicates', async () => {
+      const summary1 = await service.syncOfficialRepresentativeData();
+      expect(summary1.createdCount).toBeGreaterThan(0);
+      expect(summary1.rejectedCount).toBe(0);
+
+      const count1 = representatives.length;
+      // Second sync must be idempotent
+      const summary2 = await service.syncOfficialRepresentativeData();
+      expect(summary2.unchangedCount).toBe(count1);
+      expect(representatives.length).toBe(count1);
+    });
+
+    it('2. should match report coordinates and location hierarchy to multiple representative tiers', async () => {
+      await service.syncOfficialRepresentativeData();
+
+      // Submit report in Visakhapatnam, Bheemili, Ward 12
+      const matchResult = await service.matchAndAssociateReport({
+        reportId: 'rep-geo-101',
+        category: 'POTHOLE',
+        coordinates: [83.37, 17.79], // [lng, lat]
+        administrativeContext: {
+          districtId: 'visakhapatnam',
+          mandalId: 'bheemunipatnam',
+        },
+        status: 'OPEN' as any,
+      });
+
+      expect(matchResult.associationsCreated).toBeGreaterThanOrEqual(2);
+      expect(matchResult.responsibleDepartment?.name).toBe('Roads & Infrastructure Maintenance Division');
+
+      const repAssocs = await (mockDbService as any).reportAssociations
+        .find({ reportId: 'rep-geo-101' })
+        .toArray();
+      expect(repAssocs.some((a: any) => a.relationshipType === 'CONSTITUENCY_REPRESENTATIVE')).toBe(true);
+      expect(repAssocs.some((a: any) => a.relationshipType === 'AREA_REPRESENTATIVE')).toBe(true);
+    });
+
+    it('3. should distinguish responsible department from representative profile', async () => {
+      await service.syncOfficialRepresentativeData();
+
+      const match = await service.matchAndAssociateReport({
+        reportId: 'rep-elec-202',
+        category: 'STREETLIGHT',
+        coordinates: [83.21, 17.68],
+        administrativeContext: {
+          districtId: 'visakhapatnam',
+        },
+        status: 'OPEN' as any,
+      });
+
+      expect(match.responsibleDepartment?.name).toBe('Municipal Electrical & Lighting Wing');
+    });
+
+    it('4. should submit and verify resolution evidence separately from immutable before photo', async () => {
+      const ev = await service.submitResolutionEvidence(
+        'rep-geo-101',
+        { sub: 'resident-user-1', role: UserRole.RESIDENT, displayName: 'Resident Rao' },
+        {
+          evidenceType: 'AFTER' as any,
+          media: {
+            mediaId: 'med-99',
+            publicId: 'res-after-99',
+            url: 'https://cloudinary.com/after99.jpg',
+            secureUrl: 'https://cloudinary.com/after99.jpg',
+            format: 'jpg',
+            resourceType: 'image',
+            bytes: 40000,
+          },
+          description: 'Road patch laid and rolled',
+        },
+      );
+
+      expect(ev.id).toBeDefined();
+      expect(ev.verificationStatus).toBe('PENDING'); // Resident uploads are PENDING until verified
+
+      const verified = await service.verifyResolutionEvidence(
+        ev.id,
+        'moderator-1',
+        {
+          verified: true,
+          rejectionReason: undefined,
+        },
+      );
+
+      expect(verified.verificationStatus).toBe('VERIFIED');
+      expect(verified.verifiedByUserId).toBe('moderator-1');
+    });
+
+    it('5. should handle profile claiming lifecycle cleanly without granting premature privileges', async () => {
+      await service.syncOfficialRepresentativeData();
+      const rep = representatives[0];
+
+      const claim = await service.submitProfileClaim(rep._id, 'claimant-user-1', {
+        officialEmailUsed: 'office@representative.gov.in',
+        proofDetails: 'Gazette notification of election certificate #104',
+      });
+
+      expect(claim.status).toBe('CLAIM_PENDING');
+
+      // Admin approves claim
+      const reviewed = await service.reviewProfileClaim(
+        claim.id,
+        'admin-supervisor',
+        {
+          approved: true,
+          decisionNotes: 'Election certificate verified against ECI records',
+        },
+      );
+
+      expect(reviewed.status).toBe('CLAIMED_VERIFIED');
+      expect(rep.claimStatus).toBe('CLAIMED_VERIFIED');
+    });
+
+    it('6. should report accurate statewide coverage metrics without implying full ward coverage', async () => {
+      await service.syncOfficialRepresentativeData();
+      const coverage = await service.getCoverageReport();
+
+      expect(coverage.totalStatewideDistricts).toBe(28);
+      expect(coverage.statewideDistrictsCovered).toBe(5);
+      expect(coverage.wardLevelExactMappingAvailable).toBe(false);
+      expect(coverage.wardLevelCoverageScope).toBe('PILOT_PARTIAL');
+      expect(coverage.dataCompletenessNotes).toContain('covers 5 of 28 Andhra Pradesh districts');
+    });
+
+    it('7. should deduplicate report associations idempotently on repeated matching calls', async () => {
+      await service.syncOfficialRepresentativeData();
+
+      const reportPayload: {
+        reportId: string;
+        category: string;
+        coordinates: [number, number];
+        administrativeContext: {
+          districtId: string;
+          mandalId: string;
+        };
+        status: any;
+      } = {
+        reportId: 'rep-dedup-test-999',
+        category: 'POTHOLE',
+        coordinates: [83.334, 17.742],
+        administrativeContext: {
+          districtId: 'visakhapatnam',
+          mandalId: 'visakhapatnam_urban',
+        },
+        status: 'SUBMITTED' as any,
+      };
+
+      const match1 = await service.matchAndAssociateReport(reportPayload);
+      expect(match1.associationsCreated).toBeGreaterThan(0);
+
+      const match2 = await service.matchAndAssociateReport(reportPayload);
+      expect(match2.associationsCreated).toBe(0); // 0 new associations created on repeat call
+
+      const assocs = await (mockDbService as any).reportAssociations
+        .find({ reportId: 'rep-dedup-test-999' })
+        .toArray();
+      const uniqueKeys = new Set(assocs.map((a: any) => `${a.representativeId}_${a.relationshipType}`));
+      expect(uniqueKeys.size).toBe(assocs.length); // strictly unique
+    });
+
+    it('8. should sync report resolution status to representative associations and recalculate accountability', async () => {
+      await service.syncOfficialRepresentativeData();
+
+      // Associate report with representative
+      await service.matchAndAssociateReport({
+        reportId: 'rep-status-sync-1',
+        category: 'POTHOLE',
+        administrativeContext: {
+          districtId: 'visakhapatnam',
+        },
+        status: 'IN_PROGRESS' as any,
+      });
+
+      // Status sync
+      const modified = await service.updateReportStatusInAssociations('rep-status-sync-1', 'RESOLVED' as any);
+      expect(modified).toBeGreaterThan(0);
+
+      // Verify accountability summary updates
+      const summary = await service.getRepresentativeAccountabilitySummary('rep_mp_sribharat');
+      expect(summary.totalAssociatedReports).toBeGreaterThanOrEqual(1);
+      expect(summary.resolvedReports).toBeGreaterThanOrEqual(1);
+    });
+  });
 });

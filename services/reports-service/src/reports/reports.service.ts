@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
+import http from 'http';
 import { Filter } from 'mongodb';
 import { CivicLogger, dispatchNotificationEvent } from '@civic-pulse/nest-common';
 import { ConfigService } from '@nestjs/config';
@@ -37,6 +38,7 @@ import {
 @Injectable()
 export class ReportsService {
   private readonly notificationsServiceUrl: string;
+  private readonly authorityServiceUrl: string;
   private readonly internalServiceKey: string;
 
   constructor(
@@ -49,9 +51,13 @@ export class ReportsService {
     this.notificationsServiceUrl =
       this.configService.get<string>('NOTIFICATIONS_SERVICE_URL') ||
       'http://127.0.0.1:3005';
+    this.authorityServiceUrl =
+      this.configService.get<string>('AUTHORITY_SERVICE_URL') ||
+      'http://127.0.0.1:3004';
     this.internalServiceKey =
+      this.configService.get<string>('INTERNAL_SERVICE_KEY') ||
       this.configService.get<string>('NOTIFICATIONS_INTERNAL_KEY') ||
-      'civic_pulse_notifications_internal_secret_dev';
+      'civic_pulse_internal_service_secret_dev';
   }
 
   // --- Permitted Transition Matrix ---
@@ -164,6 +170,15 @@ export class ReportsService {
 
     await this.db.reports.insertOne(doc);
     this.logger.log(`Created report ${reportId} for author ${author.sub}`);
+
+    // Deterministically trigger S2S jurisdiction & representative matching
+    this.matchReportJurisdictionsAsync({
+      reportId,
+      coordinates: locationDoc ? locationDoc.coordinates : undefined,
+      administrativeContext: dto.administrativeContext,
+      category: dto.category,
+      status: ReportStatus.SUBMITTED,
+    });
 
     return this.mapToDto(doc);
   }
@@ -416,6 +431,9 @@ export class ReportsService {
       `Report ${id} transitioned atomically from ${currentStatus} to ${targetStatus} by ${actor.sub} (${actor.role})`,
     );
 
+    // Sync updated status to representative associations
+    this.syncReportStatusToAuthorityAsync(id, targetStatus);
+
     // Dispatch status change event and atomically record acknowledgement
     try {
       const delivered = await dispatchNotificationEvent({
@@ -640,4 +658,83 @@ export class ReportsService {
 
     return { scanned, recovered, failed };
   }
+
+  // ===========================================================================
+  // S2S Representative & Jurisdiction Sync Helpers
+  // ===========================================================================
+
+  private matchReportJurisdictionsAsync(payload: {
+    reportId: string;
+    coordinates?: [number, number];
+    administrativeContext?: {
+      districtId: string;
+      mandalId?: string;
+      localityId?: string;
+    };
+    category: string;
+    status: ReportStatus;
+  }): void {
+    const postData = JSON.stringify(payload);
+    const targetUrl = new URL('/api/v1/internal/reports/match-jurisdictions', this.authorityServiceUrl);
+
+    const req = http.request(
+      targetUrl.href,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData),
+          'x-internal-service-token': this.internalServiceKey,
+          'x-internal-service-name': 'reports-service',
+        },
+        timeout: 5000,
+      },
+      (res) => {
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+          this.logger.log(`Successfully matched jurisdictions for report ${payload.reportId}`);
+        } else {
+          this.logger.warn(`Jurisdiction match returned status ${res.statusCode} for report ${payload.reportId}`);
+        }
+      },
+    );
+
+    req.on('error', (err) => {
+      this.logger.warn(`Failed to dispatch match jurisdictions for report ${payload.reportId}: ${err.message}`);
+    });
+
+    req.write(postData);
+    req.end();
+  }
+
+  private syncReportStatusToAuthorityAsync(reportId: string, newStatus: ReportStatus): void {
+    const postData = JSON.stringify({ status: newStatus });
+    const targetUrl = new URL(`/api/v1/internal/reports/${encodeURIComponent(reportId)}/status-sync`, this.authorityServiceUrl);
+
+    const req = http.request(
+      targetUrl.href,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData),
+          'x-internal-service-token': this.internalServiceKey,
+          'x-internal-service-name': 'reports-service',
+        },
+        timeout: 5000,
+      },
+      (res) => {
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+          this.logger.log(`Synced status ${newStatus} to authority associations for report ${reportId}`);
+        }
+      },
+    );
+
+    req.on('error', (err) => {
+      this.logger.warn(`Failed to sync status to authority for report ${reportId}: ${err.message}`);
+    });
+
+    req.write(postData);
+    req.end();
+  }
 }
+

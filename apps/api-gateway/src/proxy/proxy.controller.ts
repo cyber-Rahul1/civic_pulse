@@ -153,8 +153,8 @@ export class ProxyController {
 
     const url = req.url;
 
-    // Route assignments to Authority Service
-    if (url.includes('/assignments')) {
+    // Route assignments, evidence, and jurisdiction-matches to Authority Service
+    if (url.includes('/assignments') || url.includes('/evidence') || url.includes('/match-jurisdictions')) {
       const proxyRes = await this.proxyService.forward({
         targetServiceUrl: this.authorityServiceUrl,
         path: req.url,

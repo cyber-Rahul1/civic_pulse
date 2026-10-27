@@ -32,6 +32,14 @@ import {
   CreateCommentDto,
   RegisterDto,
   LoginDto,
+  RepresentativeProfileDto,
+  RepresentativeAccountabilitySummaryDto,
+  ResolutionEvidenceDto,
+  ProfileClaimRequestDto,
+  RepresentativeImportSummaryDto,
+  SubmitProfileClaimDto,
+  SubmitResolutionEvidenceDto,
+  VerifyResolutionEvidenceDto,
 } from '@civic-pulse/contracts';
 import { mobileConfig } from '../config/env';
 import { secureStorage } from '../storage/secure-storage';
@@ -494,6 +502,154 @@ export class ApiClient {
       method: 'GET',
       requiresAuth: true,
     });
+  }
+
+  // ===========================================================================
+  // 6. Public Representatives Directory & Accountability
+  // ===========================================================================
+
+  async listRepresentatives(params: {
+    search?: string;
+    officeType?: string;
+    districtId?: string;
+    termStatus?: string;
+    page?: number;
+    limit?: number;
+  } = {}): Promise<{
+    items: RepresentativeProfileDto[];
+    meta: { page: number; limit: number; totalItems: number; totalPages: number };
+  }> {
+    const q = new URLSearchParams();
+    if (params.search) q.append('search', params.search);
+    if (params.officeType) q.append('officeType', params.officeType);
+    if (params.districtId) q.append('districtId', params.districtId);
+    if (params.termStatus) q.append('termStatus', params.termStatus);
+    if (params.page) q.append('page', String(params.page));
+    if (params.limit) q.append('limit', String(params.limit));
+
+    const queryStr = q.toString() ? `?${q.toString()}` : '';
+    return this.request<{
+      items: RepresentativeProfileDto[];
+      meta: { page: number; limit: number; totalItems: number; totalPages: number };
+    }>(`api/v1/authority/representatives${queryStr}`, { method: 'GET' });
+  }
+
+  async getRepresentativeById(id: string): Promise<RepresentativeProfileDto> {
+    return this.request<RepresentativeProfileDto>(`api/v1/authority/representatives/${id}`, {
+      method: 'GET',
+    });
+  }
+
+  async getRepresentativeAccountability(
+    id: string
+  ): Promise<RepresentativeAccountabilitySummaryDto> {
+    return this.request<RepresentativeAccountabilitySummaryDto>(
+      `api/v1/authority/representatives/${id}/accountability`,
+      { method: 'GET' }
+    );
+  }
+
+  async getRepresentativeReports(
+    id: string,
+    status?: string,
+    page: number = 1,
+    limit: number = 20
+  ): Promise<{
+    items: Array<{
+      id: string;
+      reportId: string;
+      relationshipType: string;
+      matchingMethod: string;
+      reportStatus: string;
+      associatedAt: string;
+    }>;
+    meta: { page: number; limit: number; totalItems: number; totalPages: number };
+  }> {
+    const q = new URLSearchParams();
+    if (status && status !== 'ALL') q.append('status', status);
+    q.append('page', String(page));
+    q.append('limit', String(limit));
+
+    return this.request<any>(
+      `api/v1/authority/representatives/${id}/reports?${q.toString()}`,
+      { method: 'GET' }
+    );
+  }
+
+  async getCoverageReport(): Promise<any> {
+    return this.request<any>('api/v1/authority/representatives/coverage', {
+      method: 'GET',
+    });
+  }
+
+  async syncRepresentativeDirectory(): Promise<RepresentativeImportSummaryDto> {
+    return this.request<RepresentativeImportSummaryDto>(
+      'api/v1/authority/representatives/sync',
+      { method: 'POST', requiresAuth: true }
+    );
+  }
+
+  async submitProfileClaim(
+    representativeId: string,
+    dto: SubmitProfileClaimDto
+  ): Promise<ProfileClaimRequestDto> {
+    return this.request<ProfileClaimRequestDto>(
+      `api/v1/authority/representatives/${representativeId}/claims`,
+      {
+        method: 'POST',
+        body: dto,
+        requiresAuth: true,
+      }
+    );
+  }
+
+  async updateRepresentativeProfile(
+    representativeId: string,
+    dto: { biography?: string; contactDetails?: any }
+  ): Promise<RepresentativeProfileDto> {
+    return this.request<RepresentativeProfileDto>(
+      `api/v1/authority/representatives/${representativeId}`,
+      {
+        method: 'PATCH',
+        body: dto,
+        requiresAuth: true,
+      }
+    );
+  }
+
+  // ===========================================================================
+  // 7. Before/After Resolution Evidence
+  // ===========================================================================
+
+  async getReportEvidence(reportId: string): Promise<ResolutionEvidenceDto[]> {
+    return this.request<ResolutionEvidenceDto[]>(`api/v1/reports/${reportId}/evidence`, {
+      method: 'GET',
+    });
+  }
+
+  async submitResolutionEvidence(
+    reportId: string,
+    dto: SubmitResolutionEvidenceDto
+  ): Promise<ResolutionEvidenceDto> {
+    return this.request<ResolutionEvidenceDto>(`api/v1/reports/${reportId}/evidence`, {
+      method: 'POST',
+      body: dto,
+      requiresAuth: true,
+    });
+  }
+
+  async verifyResolutionEvidence(
+    evidenceId: string,
+    dto: VerifyResolutionEvidenceDto
+  ): Promise<ResolutionEvidenceDto> {
+    return this.request<ResolutionEvidenceDto>(
+      `api/v1/authority/evidence/${evidenceId}/verify`,
+      {
+        method: 'POST',
+        body: dto,
+        requiresAuth: true,
+      }
+    );
   }
 }
 
