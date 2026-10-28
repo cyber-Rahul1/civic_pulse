@@ -11,6 +11,7 @@ import { NotificationDto } from '@civic-pulse/contracts';
 import { apiClient } from '../api/api-client';
 import { EmptyState, ErrorState } from '../components/FeedbackStates';
 import { SkeletonNotificationRow, ShimmerSkeleton } from '../components/ShimmerSkeleton';
+import { BackButton } from '../components/BackButton';
 import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface NotificationsScreenProps {
@@ -161,9 +162,7 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({
     <View style={styles.screenContainer}>
       {/* Navigation & Header */}
       <View style={styles.navBar}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backButtonText}>← Back</Text>
-        </TouchableOpacity>
+        <BackButton onPress={onBack} />
         <Text style={styles.navTitle}>Notifications</Text>
         {unreadCount > 0 ? (
           <TouchableOpacity onPress={handleMarkAllRead} disabled={isMarkingAll}>

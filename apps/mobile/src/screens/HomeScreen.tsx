@@ -398,14 +398,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.avatarButton}
+            style={user ? styles.avatarButton : styles.guestAvatarButton}
             onPress={onOpenProfile}
             accessibilityRole="button"
-            accessibilityLabel="Profile & Settings"
+            accessibilityLabel={user ? "Profile & Settings" : "Sign In or Register"}
           >
-            <Text style={styles.avatarText}>
-              {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'D'}
-            </Text>
+            {user ? (
+              <Text style={styles.avatarText}>
+                {user.displayName ? user.displayName.charAt(0).toUpperCase() : 'U'}
+              </Text>
+            ) : (
+              <Text style={styles.guestAvatarText}>Sign In</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -582,8 +586,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             savedRegion={savedMapRegion}
             onRegionChangeComplete={onMapRegionChange}
             focusReportId={focusReportId}
+            bottomOffset={20}
           />
-          {/* Floating Report An Issue Action in Map View */}
+          {/* Floating Report An Issue Action in Map View (positioned above legend options) */}
           <TouchableOpacity
             style={styles.floatingReportButton}
             onPress={onCreateReport}
@@ -859,6 +864,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
+  guestAvatarButton: {
+    paddingHorizontal: 12,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#93C5FD',
+  },
+  guestAvatarText: {
+    color: '#1D4ED8',
+    fontSize: 12,
+    fontWeight: '800',
+  },
   authorityBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1035,16 +1055,18 @@ const styles = StyleSheet.create({
   },
   floatingReportButton: {
     position: 'absolute',
-    bottom: spacing.xl,
+    bottom: 74,
     alignSelf: 'center',
     backgroundColor: '#2563EB',
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
+    paddingVertical: 13,
     borderRadius: radii.pill,
     ...shadows.lg,
+    elevation: 8,
+    zIndex: 30,
   },
   floatingReportButtonIcon: {
     fontSize: 16,

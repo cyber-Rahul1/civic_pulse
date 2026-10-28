@@ -53,6 +53,7 @@ interface CommunityMapProps {
   savedRegion?: MapRegion | null;
   onRegionChangeComplete?: (region: MapRegion) => void;
   focusReportId?: string | null;
+  bottomOffset?: number;
 }
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -101,6 +102,7 @@ export const CommunityMap: React.FC<CommunityMapProps> = ({
   savedRegion,
   onRegionChangeComplete,
   focusReportId,
+  bottomOffset = 20,
 }) => {
   const [canvasSize, setCanvasSize] = useState({
     width: SCREEN_WIDTH,
@@ -120,8 +122,10 @@ export const CommunityMap: React.FC<CommunityMapProps> = ({
 
   const [zoomLevel, setZoomLevel] = useState<number>(1.2); // 0.8 = whole state, 5.0 = local street area
 
-  // Pan gesture tracking
+  // Pan & Pinch-to-Zoom gesture tracking
   const panOffset = useRef({ x: 0, y: 0 });
+  const initialDistance = useRef<number | null>(null);
+  const initialPinchZoom = useRef<number>(1.2);
   const centerRef = useRef(mapCenter);
   centerRef.current = mapCenter;
   const zoomRef = useRef(zoomLevel);
@@ -316,20 +320,67 @@ export const CommunityMap: React.FC<CommunityMapProps> = ({
   }, [focusReportId, rawReports, groupedMarkers]);
 
   /**
-   * Pan Gesture Handler for smooth touch panning
+   * Pan & Pinch Gesture Handler for smooth touch panning and two-finger pinch-to-zoom
    */
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponder: (_, gestureState) =>
-        Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3,
-      onMoveShouldSetPanResponderCapture: (_, gestureState) =>
-        Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3,
-      onPanResponderGrant: () => {
-        panOffset.current = { x: 0, y: 0 };
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        const touches = evt.nativeEvent.touches || [];
+        if (touches.length >= 2) return true;
+        return Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3;
       },
-      onPanResponderMove: (_, gestureState) => {
+      onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
+        const touches = evt.nativeEvent.touches || [];
+        if (touches.length >= 2) return true;
+        return Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3;
+      },
+      onPanResponderGrant: (evt) => {
+        panOffset.current = { x: 0, y: 0 };
+        const touches = evt.nativeEvent.touches;
+        if (touches && touches.length >= 2 && touches[0] && touches[1]) {
+          const dx = touches[0].pageX - touches[1].pageX;
+          const dy = touches[0].pageY - touches[1].pageY;
+          initialDistance.current = Math.hypot(dx, dy);
+          initialPinchZoom.current = zoomRef.current;
+        } else {
+          initialDistance.current = null;
+        }
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        const touches = evt.nativeEvent.touches;
+
+        // Two-finger pinch to zoom
+        if (touches && touches.length >= 2 && touches[0] && touches[1]) {
+          const dx = touches[0].pageX - touches[1].pageX;
+          const dy = touches[0].pageY - touches[1].pageY;
+          const currentDistance = Math.hypot(dx, dy);
+
+          if (!initialDistance.current || initialDistance.current <= 0) {
+            initialDistance.current = currentDistance;
+            initialPinchZoom.current = zoomRef.current;
+            return;
+          }
+
+          const scaleRatio = currentDistance / initialDistance.current;
+          const nextZoom = Math.max(
+            0.7,
+            Math.min(5.0, Number((initialPinchZoom.current * scaleRatio).toFixed(3)))
+          );
+
+          setZoomLevel(nextZoom);
+          return;
+        }
+
+        // Single-finger pan/drag
+        if (initialDistance.current !== null) {
+          // Reset pan offset if user just transitioned from a two-finger pinch to single finger
+          initialDistance.current = null;
+          panOffset.current = { x: gestureState.dx, y: gestureState.dy };
+          return;
+        }
+
         const deltaX = gestureState.dx - panOffset.current.x;
         const deltaY = gestureState.dy - panOffset.current.y;
         panOffset.current = { x: gestureState.dx, y: gestureState.dy };
@@ -337,19 +388,28 @@ export const CommunityMap: React.FC<CommunityMapProps> = ({
         const currentZoom = zoomRef.current;
         const lonSpan = AP_BOUNDS.maxLongitude - AP_BOUNDS.minLongitude;
         const latSpan = AP_BOUNDS.maxLatitude - AP_BOUNDS.minLatitude;
-        const scale = Math.min((canvasSize.width * 0.88) / lonSpan, (canvasSize.height * 0.72) / latSpan) * currentZoom;
+        const scale =
+          Math.min((canvasSize.width * 0.88) / lonSpan, (canvasSize.height * 0.72) / latSpan) *
+          currentZoom;
         const cosLat = Math.cos((16 * Math.PI) / 180);
 
         const dLng = deltaX / (scale * cosLat);
         const dLat = -deltaY / scale;
 
         setMapCenter((prev) => {
-          const newLat = Math.max(AP_BOUNDS.minLatitude - 1, Math.min(AP_BOUNDS.maxLatitude + 1, prev.latitude - dLat));
-          const newLng = Math.max(AP_BOUNDS.minLongitude - 1, Math.min(AP_BOUNDS.maxLongitude + 1, prev.longitude - dLng));
+          const newLat = Math.max(
+            AP_BOUNDS.minLatitude - 1,
+            Math.min(AP_BOUNDS.maxLatitude + 1, prev.latitude - dLat)
+          );
+          const newLng = Math.max(
+            AP_BOUNDS.minLongitude - 1,
+            Math.min(AP_BOUNDS.maxLongitude + 1, prev.longitude - dLng)
+          );
           return { latitude: newLat, longitude: newLng };
         });
       },
       onPanResponderRelease: () => {
+        initialDistance.current = null;
         if (onRegionChangeComplete) {
           onRegionChangeComplete({
             latitude: centerRef.current.latitude,
@@ -358,6 +418,9 @@ export const CommunityMap: React.FC<CommunityMapProps> = ({
             longitudeDelta: 0.1 / zoomRef.current,
           });
         }
+      },
+      onPanResponderTerminate: () => {
+        initialDistance.current = null;
       },
     })
   ).current;
@@ -734,7 +797,7 @@ export const CommunityMap: React.FC<CommunityMapProps> = ({
       )}
 
       {/* Map Legend (Semantic Urgency Colors) */}
-      <View style={styles.legendContainer}>
+      <View style={[styles.legendContainer, { bottom: bottomOffset }]}>
         <View style={styles.legendRow}>
           <View style={[styles.legendDot, { backgroundColor: '#16A34A' }]} />
           <Text style={styles.legendText}>Resolved</Text>
@@ -749,7 +812,7 @@ export const CommunityMap: React.FC<CommunityMapProps> = ({
 
       {/* Grouped Location Report List Preview Card */}
       {selectedGroup && (
-        <View style={styles.previewSheet}>
+        <View style={[styles.previewSheet, { bottom: bottomOffset }]}>
           <View style={styles.previewHeader}>
             <View style={styles.previewTitleGroup}>
               <View
@@ -980,16 +1043,18 @@ const styles = StyleSheet.create({
   },
   legendContainer: {
     position: 'absolute',
-    bottom: 26,
+    bottom: 20,
     left: spacing.md,
     right: spacing.md,
-    backgroundColor: 'rgba(255, 255, 255, 0.94)',
-    paddingVertical: 7,
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    paddingVertical: 8,
     paddingHorizontal: spacing.md,
     borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.border,
-    ...shadows.subtle,
+    borderColor: '#E2E8F0',
+    ...shadows.card,
+    elevation: 4,
+    zIndex: 15,
   },
   legendRow: {
     flexDirection: 'row',

@@ -6,29 +6,33 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  TouchableOpacity,
 } from 'react-native';
 import { useAuth } from '../context/auth-context';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
+import { BackButton } from '../components/BackButton';
 import { colors, spacing, typography, radii } from '../theme/tokens';
 
 interface AuthScreenProps {
   initialMode?: 'welcome' | 'login' | 'register';
   onAuthenticated?: () => void;
+  onCancel?: () => void;
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
-  initialMode = 'welcome',
+  initialMode = 'login',
   onAuthenticated,
+  onCancel,
 }) => {
   const { login, register } = useAuth();
   const [mode, setMode] = useState<'welcome' | 'login' | 'register'>(initialMode);
-  
+
   // Form fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  
+
   // Validation & Submission
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
@@ -102,6 +106,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   if (mode === 'welcome') {
     return (
       <ScrollView contentContainerStyle={styles.welcomeContainer}>
+        {onCancel && (
+          <TouchableOpacity style={styles.topCloseBtn} onPress={onCancel}>
+            <Text style={styles.topCloseText}>✕ Close</Text>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.welcomeHero}>
           <View style={styles.logoBadge}>
             <Text style={styles.logoText}>CP</Text>
@@ -127,52 +137,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             size="lg"
             style={styles.actionBtn}
           />
-          <Button
-            title="Demo Resident Login"
-            onPress={async () => {
-              setIsSubmitting(true);
-              setGeneralError('');
-              try {
-                await login({
-                  email: 'resident.phase2@example.com',
-                  password: 'ResidentPass123!',
-                });
-                onAuthenticated?.();
-              } catch (err: any) {
-                setGeneralError(err.message || 'Login error');
-                setMode('login');
-              } finally {
-                setIsSubmitting(false);
-              }
-            }}
-            variant="secondary"
-            size="md"
-            loading={isSubmitting}
-            style={styles.actionBtn}
-          />
-          <Button
-            title="Demo Authority Login"
-            onPress={async () => {
-              setIsSubmitting(true);
-              setGeneralError('');
-              try {
-                await login({
-                  email: 'authority.phase2@example.com',
-                  password: 'AuthorityPass123!',
-                });
-                onAuthenticated?.();
-              } catch (err: any) {
-                setGeneralError(err.message || 'Login error');
-                setMode('login');
-              } finally {
-                setIsSubmitting(false);
-              }
-            }}
-            variant="outline"
-            size="md"
-            loading={isSubmitting}
-            style={styles.actionBtn}
-          />
+          {onCancel && (
+            <TouchableOpacity style={styles.guestLinkBtn} onPress={onCancel}>
+              <Text style={styles.guestLinkText}>Continue browsing as guest →</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
     );
@@ -184,13 +153,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       style={styles.screenContainer}
     >
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        {onCancel && (
+          <View style={{ marginBottom: spacing.md, alignSelf: 'flex-start' }}>
+            <BackButton onPress={onCancel} label="Back to App" />
+          </View>
+        )}
+
         <View style={styles.header}>
           <Text style={styles.screenTitle}>
             {mode === 'login' ? 'Welcome Back' : 'Join CivicPulse'}
           </Text>
           <Text style={styles.screenSubtitle}>
             {mode === 'login'
-              ? 'Sign in to monitor and report civic issues'
+              ? 'Sign in to report civic issues and participate in community discussions'
               : 'Empower your neighborhood with civic transparency'}
           </Text>
         </View>
@@ -256,34 +231,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             style={styles.switchModeBtn}
           />
 
-          <Button
-            title="Back to Welcome"
-            onPress={() => setMode('welcome')}
-            variant="ghost"
-            size="sm"
-          />
-
-          <View style={{ marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderColor: colors.borderSubtle }}>
-            <Button
-              title="Quick Fill: Resident"
-              onPress={() => {
-                setEmail('resident.phase2@example.com');
-                setPassword('ResidentPass123!');
-              }}
-              variant="outline"
-              size="sm"
-              style={{ marginBottom: spacing.xs }}
-            />
-            <Button
-              title="Quick Fill: Authority"
-              onPress={() => {
-                setEmail('authority.phase2@example.com');
-                setPassword('AuthorityPass123!');
-              }}
-              variant="outline"
-              size="sm"
-            />
-          </View>
+          {onCancel && (
+            <TouchableOpacity style={styles.guestLinkBtn} onPress={onCancel}>
+              <Text style={styles.guestLinkText}>Continue browsing as guest →</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -305,11 +257,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     justifyContent: 'space-between',
     padding: spacing.xl,
-    paddingTop: spacing.hero * 1.5,
+    paddingTop: spacing.hero,
+  },
+  topCloseBtn: {
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  topCloseText: {
+    color: colors.primary,
+    fontSize: typography.sizes.sm,
+    fontWeight: '700',
   },
   welcomeHero: {
     alignItems: 'center',
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
   },
   logoBadge: {
     width: 64,
@@ -357,6 +320,16 @@ const styles = StyleSheet.create({
   actionBtn: {
     marginBottom: spacing.md,
   },
+  guestLinkBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.md,
+  },
+  guestLinkText: {
+    color: colors.primary,
+    fontSize: typography.sizes.sm,
+    fontWeight: '700',
+  },
   header: {
     marginBottom: spacing.xl,
   },
@@ -369,6 +342,7 @@ const styles = StyleSheet.create({
   screenSubtitle: {
     fontSize: typography.sizes.sm,
     color: colors.textSecondary,
+    lineHeight: 20,
   },
   generalErrorBox: {
     backgroundColor: colors.errorBackground,

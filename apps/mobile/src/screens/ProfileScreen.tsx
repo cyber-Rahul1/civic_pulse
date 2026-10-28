@@ -4,7 +4,6 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  TouchableOpacity,
   Switch,
   ActivityIndicator,
 } from 'react-native';
@@ -12,13 +11,15 @@ import { NotificationPreferencesDto, LocationVerificationStatus } from '@civic-p
 import { useAuth } from '../context/auth-context';
 import { apiClient } from '../api/api-client';
 import { Button } from '../components/Button';
+import { BackButton } from '../components/BackButton';
 import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface ProfileScreenProps {
   onBack: () => void;
+  onLogin?: () => void;
 }
 
-export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack }) => {
+export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack, onLogin }) => {
   const { user, logout, updateUser } = useAuth();
   const [preferences, setPreferences] = useState<NotificationPreferencesDto | null>(null);
   const [isLoadingPrefs, setIsLoadingPrefs] = useState(true);
@@ -161,154 +162,181 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack }) => {
   return (
     <View style={styles.screenContainer}>
       <View style={styles.navBar}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backButtonText}>← Back</Text>
-        </TouchableOpacity>
+        <BackButton onPress={onBack} />
         <Text style={styles.navTitle}>Account & Settings</Text>
-        <View style={{ width: 60 }} />
+        <View style={{ width: 68 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Profile Card */}
-        <View style={styles.profileCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'U'}
-            </Text>
+        {/* Profile Card / Guest Card */}
+        {!user ? (
+          <View style={styles.profileCard}>
+            <View style={[styles.avatar, { backgroundColor: colors.surfaceMuted }]}>
+              <Text style={[styles.avatarText, { color: colors.textSecondary }]}>👤</Text>
+            </View>
+            <Text style={styles.displayName}>Guest Visitor</Text>
+            <Text style={styles.emailText}>Browsing CivicPulse publicly</Text>
+            <View style={[styles.roleBadge, { backgroundColor: '#F1F5F9' }]}>
+              <Text style={[styles.roleText, { color: colors.textSecondary }]}>ROLE: GUEST</Text>
+            </View>
+            <View style={{ width: '100%', marginTop: spacing.md }}>
+              <Button
+                title="Sign In / Register"
+                onPress={() => {
+                  if (onLogin) {
+                    onLogin();
+                  }
+                }}
+                variant="primary"
+                size="md"
+              />
+            </View>
           </View>
-          <Text style={styles.displayName}>{user?.displayName || 'Resident'}</Text>
-          <Text style={styles.emailText}>{user?.email}</Text>
-          <View style={styles.roleBadge}>
-            <Text style={styles.roleText}>ROLE: {user?.role.toUpperCase()}</Text>
-          </View>
-        </View>
-
-        {/* Section: Verified Current Location */}
-        <Text style={styles.sectionHeader}>Verified Current Location</Text>
-        <View style={styles.locationCard}>
-          <View style={styles.locationHeaderRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.locationStatusTitle}>
-                {user?.verifiedCurrentLocation?.status === LocationVerificationStatus.VERIFIED
-                  ? '📍 GPS-Verified Device Location'
-                  : user?.verifiedCurrentLocation?.status === LocationVerificationStatus.OUTSIDE_AP
-                  ? '🚫 Outside Andhra Pradesh'
-                  : user?.verifiedCurrentLocation?.status === LocationVerificationStatus.INACCURATE
-                  ? '⚠️ Inaccurate GPS Fix'
-                  : '⚪ Location Unverified'}
+        ) : (
+          <View style={styles.profileCard}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {user.displayName ? user.displayName.charAt(0).toUpperCase() : 'U'}
               </Text>
-              <Text style={styles.locationStatusDesc}>
-                {user?.verifiedCurrentLocation?.status === LocationVerificationStatus.VERIFIED
-                  ? `${user.verifiedCurrentLocation.cityOrTown || 'City Unknown'}, ${user.verifiedCurrentLocation.districtName || ''} (${user.verifiedCurrentLocation.state})`
-                  : user?.verifiedCurrentLocation?.status === LocationVerificationStatus.OUTSIDE_AP
-                  ? 'Device coordinates are outside Andhra Pradesh boundaries.'
-                  : user?.verifiedCurrentLocation?.status === LocationVerificationStatus.INACCURATE
-                  ? 'GPS accuracy exceeds 3000m tolerance. City could not be verified reliably.'
-                  : 'Verify your device location using fresh GPS telemetry.'}
+            </View>
+            <Text style={styles.displayName}>{user.displayName || 'Resident'}</Text>
+            <Text style={styles.emailText}>{user.email}</Text>
+            <View style={styles.roleBadge}>
+              <Text style={styles.roleText}>ROLE: {user.role.toUpperCase()}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Section: Verified Current Location (Only when logged in) */}
+        {user && (
+          <>
+            <Text style={styles.sectionHeader}>Verified Current Location</Text>
+            <View style={styles.locationCard}>
+              <View style={styles.locationHeaderRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.locationStatusTitle}>
+                    {user.verifiedCurrentLocation?.status === LocationVerificationStatus.VERIFIED
+                      ? '📍 GPS-Verified Device Location'
+                      : user.verifiedCurrentLocation?.status === LocationVerificationStatus.OUTSIDE_AP
+                      ? '🚫 Outside Andhra Pradesh'
+                      : user.verifiedCurrentLocation?.status === LocationVerificationStatus.INACCURATE
+                      ? '⚠️ Inaccurate GPS Fix'
+                      : '⚪ Location Unverified'}
+                  </Text>
+                  <Text style={styles.locationStatusDesc}>
+                    {user.verifiedCurrentLocation?.status === LocationVerificationStatus.VERIFIED
+                      ? `${user.verifiedCurrentLocation.cityOrTown || 'City Unknown'}, ${user.verifiedCurrentLocation.districtName || ''} (${user.verifiedCurrentLocation.state})`
+                      : user.verifiedCurrentLocation?.status === LocationVerificationStatus.OUTSIDE_AP
+                      ? 'Device coordinates are outside Andhra Pradesh boundaries.'
+                      : user.verifiedCurrentLocation?.status === LocationVerificationStatus.INACCURATE
+                      ? 'GPS accuracy exceeds 3000m tolerance. City could not be verified reliably.'
+                      : 'Verify your device location using fresh GPS telemetry.'}
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.verificationBadge,
+                    user.verifiedCurrentLocation?.status === LocationVerificationStatus.VERIFIED
+                      ? styles.badgeVerified
+                      : user.verifiedCurrentLocation?.status === LocationVerificationStatus.OUTSIDE_AP
+                      ? styles.badgeOutside
+                      : user.verifiedCurrentLocation?.status === LocationVerificationStatus.INACCURATE
+                      ? styles.badgeInaccurate
+                      : styles.badgeUnverified,
+                  ]}
+                >
+                  <Text style={styles.verificationBadgeText}>
+                    {user.verifiedCurrentLocation?.status || 'UNVERIFIED'}
+                  </Text>
+                </View>
+              </View>
+
+              {user.verifiedCurrentLocation?.verifiedAt && (
+                <Text style={styles.locationMetaText}>
+                  Last checked: {new Date(user.verifiedCurrentLocation.verifiedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{' '}
+                  {user.verifiedCurrentLocation.accuracyMeters !== undefined ? `(±${user.verifiedCurrentLocation.accuracyMeters}m)` : ''}
+                </Text>
+              )}
+
+              {locationVerificationMsg && (
+                <Text style={styles.locationMsgText}>{locationVerificationMsg}</Text>
+              )}
+
+              {locationVerificationError && (
+                <Text style={styles.locationErrorText}>{locationVerificationError}</Text>
+              )}
+
+              <View style={styles.locationActionRow}>
+                <Button
+                  title={isVerifyingLocation ? 'Acquiring GPS...' : 'Re-check Current Location'}
+                  onPress={handleVerifyLocation}
+                  variant="primary"
+                  size="sm"
+                  loading={isVerifyingLocation}
+                />
+              </View>
+
+              <Text style={styles.locationDisclaimer}>
+                Important: This verifies your device's approximate GPS position at measurement time. It establishes current location eligibility and does not prove permanent legal residence.
               </Text>
             </View>
 
-            <View
-              style={[
-                styles.verificationBadge,
-                user?.verifiedCurrentLocation?.status === LocationVerificationStatus.VERIFIED
-                  ? styles.badgeVerified
-                  : user?.verifiedCurrentLocation?.status === LocationVerificationStatus.OUTSIDE_AP
-                  ? styles.badgeOutside
-                  : user?.verifiedCurrentLocation?.status === LocationVerificationStatus.INACCURATE
-                  ? styles.badgeInaccurate
-                  : styles.badgeUnverified,
-              ]}
-            >
-              <Text style={styles.verificationBadgeText}>
-                {user?.verifiedCurrentLocation?.status || 'UNVERIFIED'}
-              </Text>
+            {/* Notification Preferences */}
+            <Text style={styles.sectionHeader}>Notification Preferences</Text>
+            <View style={styles.settingsCard}>
+              {isLoadingPrefs ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : preferences ? (
+                <>
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingTextContainer}>
+                      <Text style={styles.settingLabel}>Status Changes</Text>
+                      <Text style={styles.settingDescription}>
+                        Notify when your reports are reviewed or resolved
+                      </Text>
+                    </View>
+                    <Switch
+                      value={preferences.notifyOnStatusChange}
+                      onValueChange={(val) => togglePreference('notifyOnStatusChange', val)}
+                      trackColor={{ false: colors.border, true: colors.primaryLight }}
+                    />
+                  </View>
+
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingTextContainer}>
+                      <Text style={styles.settingLabel}>Discussion Comments</Text>
+                      <Text style={styles.settingDescription}>
+                        Notify when neighbors or staff comment on reports
+                      </Text>
+                    </View>
+                    <Switch
+                      value={preferences.notifyOnComments}
+                      onValueChange={(val) => togglePreference('notifyOnComments', val)}
+                      trackColor={{ false: colors.border, true: colors.primaryLight }}
+                    />
+                  </View>
+
+                  <View style={styles.settingRow}>
+                    <View style={styles.settingTextContainer}>
+                      <Text style={styles.settingLabel}>Official Assignments</Text>
+                      <Text style={styles.settingDescription}>
+                        Notify when assigned to a municipal department
+                      </Text>
+                    </View>
+                    <Switch
+                      value={preferences.notifyOnAssignments}
+                      onValueChange={(val) => togglePreference('notifyOnAssignments', val)}
+                      trackColor={{ false: colors.border, true: colors.primaryLight }}
+                    />
+                  </View>
+                </>
+              ) : (
+                <Text style={styles.errorText}>Could not load preferences.</Text>
+              )}
             </View>
-          </View>
-
-          {user?.verifiedCurrentLocation?.verifiedAt && (
-            <Text style={styles.locationMetaText}>
-              Last checked: {new Date(user.verifiedCurrentLocation.verifiedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{' '}
-              {user.verifiedCurrentLocation.accuracyMeters !== undefined ? `(±${user.verifiedCurrentLocation.accuracyMeters}m)` : ''}
-            </Text>
-          )}
-
-          {locationVerificationMsg && (
-            <Text style={styles.locationMsgText}>{locationVerificationMsg}</Text>
-          )}
-
-          {locationVerificationError && (
-            <Text style={styles.locationErrorText}>{locationVerificationError}</Text>
-          )}
-
-          <View style={styles.locationActionRow}>
-            <Button
-              title={isVerifyingLocation ? 'Acquiring GPS...' : 'Re-check Current Location'}
-              onPress={handleVerifyLocation}
-              variant="primary"
-              size="sm"
-              loading={isVerifyingLocation}
-            />
-          </View>
-
-          <Text style={styles.locationDisclaimer}>
-            Important: This verifies your device's approximate GPS position at measurement time. It establishes current location eligibility and does not prove permanent legal residence.
-          </Text>
-        </View>
-
-        {/* Notification Preferences */}
-        <Text style={styles.sectionHeader}>Notification Preferences</Text>
-        <View style={styles.settingsCard}>
-          {isLoadingPrefs ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : preferences ? (
-            <>
-              <View style={styles.settingRow}>
-                <View style={styles.settingTextContainer}>
-                  <Text style={styles.settingLabel}>Status Changes</Text>
-                  <Text style={styles.settingDescription}>
-                    Notify when your reports are reviewed or resolved
-                  </Text>
-                </View>
-                <Switch
-                  value={preferences.notifyOnStatusChange}
-                  onValueChange={(val) => togglePreference('notifyOnStatusChange', val)}
-                  trackColor={{ false: colors.border, true: colors.primaryLight }}
-                />
-              </View>
-
-              <View style={styles.settingRow}>
-                <View style={styles.settingTextContainer}>
-                  <Text style={styles.settingLabel}>Discussion Comments</Text>
-                  <Text style={styles.settingDescription}>
-                    Notify when neighbors or staff comment on reports
-                  </Text>
-                </View>
-                <Switch
-                  value={preferences.notifyOnComments}
-                  onValueChange={(val) => togglePreference('notifyOnComments', val)}
-                  trackColor={{ false: colors.border, true: colors.primaryLight }}
-                />
-              </View>
-
-              <View style={styles.settingRow}>
-                <View style={styles.settingTextContainer}>
-                  <Text style={styles.settingLabel}>Official Assignments</Text>
-                  <Text style={styles.settingDescription}>
-                    Notify when assigned to a municipal department
-                  </Text>
-                </View>
-                <Switch
-                  value={preferences.notifyOnAssignments}
-                  onValueChange={(val) => togglePreference('notifyOnAssignments', val)}
-                  trackColor={{ false: colors.border, true: colors.primaryLight }}
-                />
-              </View>
-            </>
-          ) : (
-            <Text style={styles.errorText}>Could not load preferences.</Text>
-          )}
-        </View>
+          </>
+        )}
 
         {/* Platform & Trust Information */}
         <Text style={styles.sectionHeader}>About CivicPulse</Text>
@@ -319,16 +347,18 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack }) => {
           </Text>
         </View>
 
-        {/* Logout Section */}
-        <View style={styles.logoutSection}>
-          <Button
-            title="Sign Out"
-            onPress={handleLogout}
-            variant="danger"
-            size="lg"
-            loading={isLoggingOut}
-          />
-        </View>
+        {/* Logout Section (Only when logged in) */}
+        {user && (
+          <View style={styles.logoutSection}>
+            <Button
+              title="Sign Out"
+              onPress={handleLogout}
+              variant="danger"
+              size="lg"
+              loading={isLoggingOut}
+            />
+          </View>
+        )}
       </ScrollView>
     </View>
   );

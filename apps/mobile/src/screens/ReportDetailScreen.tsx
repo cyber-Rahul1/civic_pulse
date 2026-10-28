@@ -30,6 +30,8 @@ import { ErrorState } from '../components/FeedbackStates';
 import { SkeletonDetailView } from '../components/ShimmerSkeleton';
 import { BeforeAfterEvidence } from '../components/BeforeAfterEvidence';
 import { CameraCaptureModal, PhotoCaptureResult } from '../components/CameraCaptureModal';
+import { LoginPromptModal } from '../components/LoginPromptModal';
+import { BackButton } from '../components/BackButton';
 import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface ReportDetailScreenProps {
@@ -37,6 +39,7 @@ interface ReportDetailScreenProps {
   onBack: () => void;
   onNavigateToLocation?: (reportId: string, coordinates: [number, number]) => void;
   onSelectRepresentative?: (representativeId: string) => void;
+  onLogin?: () => void;
 }
 
 export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
@@ -44,8 +47,18 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
   onBack,
   onNavigateToLocation,
   onSelectRepresentative,
+  onLogin,
 }) => {
   const { user } = useAuth();
+  const [loginModalState, setLoginModalState] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+  }>({
+    visible: false,
+    title: '',
+    message: '',
+  });
   const [report, setReport] = useState<ReportDto | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [assignment, setAssignment] = useState<PublicAssignmentViewDto | null>(null);
@@ -215,6 +228,14 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
 
   // Endorsement Action
   const handleToggleEndorsement = async () => {
+    if (!user) {
+      setLoginModalState({
+        visible: true,
+        title: 'Endorse Report',
+        message: 'Sign in to endorse this civic issue and show neighborhood support to elected representatives.',
+      });
+      return;
+    }
     console.log('[ReportDetailScreen] handleToggleEndorsement clicked, isEndorsing:', isEndorsing, 'communitySummary:', Boolean(communitySummary));
     if (!communitySummary || isEndorsing) return;
     setIsEndorsing(true);
@@ -252,6 +273,14 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
 
   // Follow Action
   const handleToggleFollow = async () => {
+    if (!user) {
+      setLoginModalState({
+        visible: true,
+        title: 'Follow Updates',
+        message: 'Sign in to follow this report and receive real-time notifications when the status updates.',
+      });
+      return;
+    }
     if (!communitySummary || isFollowing) return;
     setIsFollowing(true);
     try {
@@ -287,6 +316,14 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
 
   // Submit Comment or Reply
   const handlePostComment = async () => {
+    if (!user) {
+      setLoginModalState({
+        visible: true,
+        title: 'Join Discussion',
+        message: 'Sign in to share community updates, ask questions, or provide feedback on this report.',
+      });
+      return;
+    }
     if (!newCommentText.trim() || isSubmittingComment) return;
     setIsSubmittingComment(true);
     try {
@@ -343,11 +380,9 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
     return (
       <View style={styles.screenContainer}>
         <View style={styles.navBar}>
-          <TouchableOpacity onPress={onBack}>
-            <Text style={styles.backButtonText}>← Back</Text>
-          </TouchableOpacity>
+          <BackButton onPress={onBack} />
           <Text style={styles.navTitle}>Report Record</Text>
-          <View style={{ width: 48 }} />
+          <View style={{ width: 68 }} />
         </View>
         <ScrollView contentContainerStyle={{ paddingBottom: spacing.hero }}>
           <SkeletonDetailView />
@@ -360,9 +395,7 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
     return (
       <View style={styles.screenContainer}>
         <View style={styles.navBar}>
-          <TouchableOpacity onPress={onBack}>
-            <Text style={styles.backButtonText}>← Back</Text>
-          </TouchableOpacity>
+          <BackButton onPress={onBack} />
         </View>
         <ErrorState
           title="Could not display report"
@@ -377,9 +410,7 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
     <View style={styles.screenContainer}>
       {/* Top App / Navigation Bar */}
       <View style={styles.navBar}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Back to reports">
-          <Text style={styles.backButtonText}>← Back</Text>
-        </TouchableOpacity>
+        <BackButton onPress={onBack} />
         <TouchableOpacity onPress={handleShare} accessibilityRole="button" accessibilityLabel="Share report">
           <Text style={styles.shareText}>📤 Share</Text>
         </TouchableOpacity>
@@ -665,8 +696,18 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
           reportStatus={report.status}
           resolutionNotes={report.resolutionNotes}
           onImagePress={(uri) => setSelectedImageUri(uri)}
-          onAddResolutionPhotoPress={() => setShowUploadEvidenceModal(true)}
-          canUploadEvidence={Boolean(user)}
+          onAddResolutionPhotoPress={() => {
+            if (!user) {
+              setLoginModalState({
+                visible: true,
+                title: 'Add Resolution Photo',
+                message: 'Sign in to upload photo evidence confirming that this civic issue has been resolved.',
+              });
+              return;
+            }
+            setShowUploadEvidenceModal(true);
+          }}
+          canUploadEvidence={true}
         />
 
         {/* Resolution Notes (if resolved) */}
@@ -781,6 +822,14 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
                   <View style={styles.commentActionRow}>
                     <TouchableOpacity
                       onPress={() => {
+                        if (!user) {
+                          setLoginModalState({
+                            visible: true,
+                            title: 'Reply to Comment',
+                            message: 'Sign in to join this community discussion and reply to this neighbor.',
+                          });
+                          return;
+                        }
                         setReplyingToCommentId(c.id);
                       }}
                     >
@@ -852,6 +901,22 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
           <Text style={styles.uploadingOverlayText}>Uploading resolution photo evidence...</Text>
         </View>
       )}
+
+      {/* Login Prompt Modal for Gated Actions */}
+      <LoginPromptModal
+        visible={loginModalState.visible}
+        title={loginModalState.title}
+        message={loginModalState.message}
+        onClose={() =>
+          setLoginModalState((prev) => ({ ...prev, visible: false }))
+        }
+        onLogin={() => {
+          setLoginModalState((prev) => ({ ...prev, visible: false }));
+          if (onLogin) {
+            onLogin();
+          }
+        }}
+      />
     </View>
   );
 };

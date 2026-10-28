@@ -18,6 +18,7 @@ import { colors, typography, spacing, radii, shadows } from '../theme/tokens';
 import { ErrorState, EmptyState } from '../components/FeedbackStates';
 import { SkeletonRepresentativeCard, ShimmerSkeleton } from '../components/ShimmerSkeleton';
 import { Input } from '../components/Input';
+import { BackButton } from '../components/BackButton';
 import { useDebounce } from '../hooks/useDebounce';
 
 interface RepresentativesDirectoryScreenProps {
@@ -185,11 +186,9 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
     <View style={styles.container}>
       {/* Top Navigation */}
       <View style={styles.navBar}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
+        <BackButton onPress={onBack} />
         <Text style={styles.navTitle}>Public Representatives</Text>
-        <View style={{ width: 48 }} />
+        <View style={{ width: 68 }} />
       </View>
 
       {/* Modern Debounced Search Input */}

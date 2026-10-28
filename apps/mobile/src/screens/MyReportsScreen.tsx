@@ -15,6 +15,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { EmptyState, ErrorState } from '../components/FeedbackStates';
 import { SkeletonReportCard, ShimmerSkeleton } from '../components/ShimmerSkeleton';
 import { Input } from '../components/Input';
+import { BackButton } from '../components/BackButton';
 import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface MyReportsScreenProps {
@@ -22,6 +23,7 @@ interface MyReportsScreenProps {
   onSelectReport: (reportId: string) => void;
   onCreateReport: () => void;
   onNavigateToLocation?: (reportId: string, coordinates: [number, number]) => void;
+  onLogin?: () => void;
 }
 
 export const MyReportsScreen: React.FC<MyReportsScreenProps> = ({
@@ -29,6 +31,7 @@ export const MyReportsScreen: React.FC<MyReportsScreenProps> = ({
   onSelectReport,
   onCreateReport,
   onNavigateToLocation,
+  onLogin,
 }) => {
   const { user } = useAuth();
   const [reports, setReports] = useState<ReportDto[]>([]);
@@ -70,7 +73,7 @@ export const MyReportsScreen: React.FC<MyReportsScreenProps> = ({
         // Filter items where authorId matches current user's id
         const userItems = user?.id
           ? allItems.filter((r: any) => r.authorId === user.id || r.author?.id === user.id)
-          : allItems;
+          : [];
 
         if (isInitial) {
           setReports(userItems);
@@ -309,9 +312,7 @@ export const MyReportsScreen: React.FC<MyReportsScreenProps> = ({
     <View style={styles.container}>
       {/* Top Navigation Bar */}
       <View style={styles.navBar}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton} activeOpacity={0.7}>
-          <Text style={styles.backButtonText}>← Back</Text>
-        </TouchableOpacity>
+        <BackButton onPress={onBack} />
         <Text style={styles.navTitle}>My Reports</Text>
         <TouchableOpacity
           onPress={onCreateReport}
@@ -472,16 +473,29 @@ export const MyReportsScreen: React.FC<MyReportsScreenProps> = ({
               ) : null
             }
             ListEmptyComponent={
-              <EmptyState
-                title={query ? 'No matching reports' : 'No submitted reports yet'}
-                description={
-                  query
-                    ? `No reports matched "${query}". Try adjusting your filters.`
-                    : 'You haven’t submitted any civic issue reports yet. Tap below to report an issue.'
-                }
-                actionTitle="Report a Civic Issue"
-                onAction={onCreateReport}
-              />
+              !user ? (
+                <EmptyState
+                  title="Sign in to view your reports"
+                  description="You are currently browsing as a guest. Sign in to track issues you have submitted and receive resolution updates."
+                  actionTitle="Sign In / Register"
+                  onAction={() => {
+                    if (onLogin) {
+                      onLogin();
+                    }
+                  }}
+                />
+              ) : (
+                <EmptyState
+                  title={query ? 'No matching reports' : 'No submitted reports yet'}
+                  description={
+                    query
+                      ? `No reports matched "${query}". Try adjusting your filters.`
+                      : 'You haven’t submitted any civic issue reports yet. Tap below to report an issue.'
+                  }
+                  actionTitle="Report a Civic Issue"
+                  onAction={onCreateReport}
+                />
+              )
             }
           />
         )}

@@ -21,18 +21,24 @@ import { Button } from '../components/Button';
 import { StatusBadge } from '../components/StatusBadge';
 import { ErrorState } from '../components/FeedbackStates';
 import { ShimmerSkeleton, SkeletonReportCard } from '../components/ShimmerSkeleton';
+import { useAuth } from '../context/auth-context';
+import { LoginPromptModal } from '../components/LoginPromptModal';
+import { BackButton } from '../components/BackButton';
 
 interface RepresentativeProfileScreenProps {
   representativeId: string;
   onBack: () => void;
   onSelectReport: (reportId: string) => void;
+  onLogin?: () => void;
 }
 
 export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenProps> = ({
   representativeId,
   onBack,
   onSelectReport,
+  onLogin,
 }) => {
+  const { user } = useAuth();
   const [profile, setProfile] = useState<RepresentativeProfileDto | null>(null);
   const [summary, setSummary] = useState<RepresentativeAccountabilitySummaryDto | null>(null);
   const [reports, setReports] = useState<ReportDto[]>([]);
@@ -41,6 +47,9 @@ export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenPr
   const [error, setError] = useState<string | null>(null);
   const [portraitError, setPortraitError] = useState<boolean>(false);
   const [reportImageErrorMap, setReportImageErrorMap] = useState<Record<string, boolean>>({});
+
+  // Login Prompt State
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
 
   // Claim Modal State
   const [isClaimModalVisible, setIsClaimModalVisible] = useState<boolean>(false);
@@ -114,11 +123,9 @@ export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenPr
     return (
       <View style={styles.container}>
         <View style={styles.navBar}>
-          <TouchableOpacity onPress={onBack}>
-            <Text style={styles.backText}>← Back</Text>
-          </TouchableOpacity>
+          <BackButton onPress={onBack} />
           <Text style={styles.navTitle}>Representative Profile</Text>
-          <View style={{ width: 48 }} />
+          <View style={{ width: 68 }} />
         </View>
         <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.hero }}>
           {/* Header Card Skeleton */}
@@ -159,9 +166,7 @@ export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenPr
     return (
       <View style={styles.container}>
         <View style={styles.navBar}>
-          <TouchableOpacity onPress={onBack}>
-            <Text style={styles.backText}>← Back</Text>
-          </TouchableOpacity>
+          <BackButton onPress={onBack} />
         </View>
         <ErrorState
           title="Could not load representative"
@@ -176,14 +181,18 @@ export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenPr
     <View style={styles.container}>
       {/* Top Navbar */}
       <View style={styles.navBar}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>← Back</Text>
-        </TouchableOpacity>
+        <BackButton onPress={onBack} />
         <Text style={styles.navTitle} numberOfLines={1}>
           {profile.publicName}
         </Text>
         <TouchableOpacity
-          onPress={() => setIsClaimModalVisible(true)}
+          onPress={() => {
+            if (!user) {
+              setShowLoginModal(true);
+              return;
+            }
+            setIsClaimModalVisible(true);
+          }}
           style={styles.claimButton}
           disabled={profile.claimStatus === 'CLAIMED_VERIFIED'}
         >
@@ -555,6 +564,20 @@ export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenPr
           </View>
         </View>
       </Modal>
+
+      {/* Login Prompt Modal for unauthenticated visitors */}
+      <LoginPromptModal
+        visible={showLoginModal}
+        title="Claim Official Profile"
+        message="Sign in with your verified government or organizational account to submit an official claim for this representative profile."
+        onClose={() => setShowLoginModal(false)}
+        onLogin={() => {
+          setShowLoginModal(false);
+          if (onLogin) {
+            onLogin();
+          }
+        }}
+      />
     </View>
   );
 };

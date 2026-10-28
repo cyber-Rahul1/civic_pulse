@@ -11,6 +11,7 @@ import { ReportAssignmentDto } from '@civic-pulse/contracts';
 import { apiClient } from '../api/api-client';
 import { EmptyState, ErrorState } from '../components/FeedbackStates';
 import { SkeletonReportCard } from '../components/ShimmerSkeleton';
+import { BackButton } from '../components/BackButton';
 import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface AuthorityScreenProps {
@@ -84,11 +85,9 @@ export const AuthorityScreen: React.FC<AuthorityScreenProps> = ({
   return (
     <View style={styles.screenContainer}>
       <View style={styles.navBar}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backButtonText}>← Back</Text>
-        </TouchableOpacity>
+        <BackButton onPress={onBack} />
         <Text style={styles.navTitle}>Assigned Reports</Text>
-        <View style={{ width: 60 }} />
+        <View style={{ width: 68 }} />
       </View>
 
       <View style={styles.noticeBanner}>
