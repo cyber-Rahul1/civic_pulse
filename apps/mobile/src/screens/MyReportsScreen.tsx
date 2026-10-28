@@ -444,10 +444,11 @@ export const MyReportsScreen: React.FC<MyReportsScreenProps> = ({
           />
         ) : (
           <FlatList
+            style={{ flex: 1 }}
             data={displayedReports}
             keyExtractor={(item) => item.id}
             renderItem={renderReportItem}
-            contentContainerStyle={styles.feedContent}
+            contentContainerStyle={[styles.feedContent, { flexGrow: 1 }]}
             refreshControl={
               <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
             }

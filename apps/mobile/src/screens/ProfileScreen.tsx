@@ -169,7 +169,10 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack, onLogin, o
         <View style={{ width: 68 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.scrollContent, { flexGrow: 1 }]}
+      >
         {/* Profile Card / Guest Card */}
         {!user ? (
           <View style={styles.profileCard}>

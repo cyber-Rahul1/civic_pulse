@@ -241,54 +241,57 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
         </Text>
       </View>
 
-      {/* Main List with Shimmer Skeleton Loading */}
-      {isLoading ? (
-        <View style={styles.skeletonWrapper}>
-          <SkeletonRepresentativeCard />
-          <SkeletonRepresentativeCard />
-          <SkeletonRepresentativeCard />
-          <SkeletonRepresentativeCard />
-        </View>
-      ) : error ? (
-        <ErrorState
-          title="Could not load directory"
-          description={error}
-          onAction={() => fetchRepresentatives(true)}
-        />
-      ) : representatives.length === 0 ? (
-        <EmptyState
-          title="No representatives found"
-          description="Try adjusting your search criteria or office filter."
-          actionTitle="Reset Filters"
-          onAction={() => {
-            setSearchQuery('');
-            setSelectedOfficeType(undefined);
-          }}
-        />
-      ) : (
-        <FlatList
-          data={representatives}
-          keyExtractor={(item) => item.id}
-          renderItem={renderRepresentativeCard}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={handleRefresh}
-              colors={[colors.primary]}
-            />
-          }
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.3}
-          ListFooterComponent={
-            isFetchingMore ? (
-              <View style={styles.moreLoader}>
-                <ShimmerSkeleton width="80%" height={16} borderRadius={radii.xs} />
-              </View>
-            ) : null
-          }
-        />
-      )}
+      {/* Main List & Feedback States wrapped in flex-1 container */}
+      <View style={styles.contentWrapper}>
+        {isLoading ? (
+          <View style={styles.skeletonWrapper}>
+            <SkeletonRepresentativeCard />
+            <SkeletonRepresentativeCard />
+            <SkeletonRepresentativeCard />
+            <SkeletonRepresentativeCard />
+          </View>
+        ) : error ? (
+          <ErrorState
+            title="Could not load directory"
+            description={error}
+            onAction={() => fetchRepresentatives(true)}
+          />
+        ) : representatives.length === 0 ? (
+          <EmptyState
+            title="No representatives found"
+            description="Try adjusting your search criteria or office filter."
+            actionTitle="Reset Filters"
+            onAction={() => {
+              setSearchQuery('');
+              setSelectedOfficeType(undefined);
+            }}
+          />
+        ) : (
+          <FlatList
+            style={{ flex: 1 }}
+            data={representatives}
+            keyExtractor={(item) => item.id}
+            renderItem={renderRepresentativeCard}
+            contentContainerStyle={[styles.listContent, { flexGrow: 1 }]}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={handleRefresh}
+                colors={[colors.primary]}
+              />
+            }
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.3}
+            ListFooterComponent={
+              isFetchingMore ? (
+                <View style={styles.moreLoader}>
+                  <ShimmerSkeleton width="80%" height={16} borderRadius={radii.xs} />
+                </View>
+              ) : null
+            }
+          />
+        )}
+      </View>
 
       {/* Persistent Bottom Navigation Bar */}
       {onSelectTab && (
@@ -305,6 +308,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  contentWrapper: {
+    flex: 1,
   },
   navBar: {
     flexDirection: 'row',
