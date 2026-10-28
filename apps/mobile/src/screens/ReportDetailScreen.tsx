@@ -755,50 +755,60 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
           </View>
 
           {/* Comment List */}
-          {comments.map((c) => {
-            const replies = repliesMap[c.id] || [];
-            return (
-              <View key={c.id} style={styles.commentCard}>
-                <View style={styles.commentHeader}>
-                  <Text style={styles.commentAuthor}>
-                    {c.authorUserId === user?.id ? 'You' : 'Resident'}
-                  </Text>
-                  <Text style={styles.commentDate}>
-                    {new Date(c.createdAt).toLocaleDateString()}
-                  </Text>
-                </View>
-                <Text style={styles.commentContent}>{c.content}</Text>
-
-                <View style={styles.commentActionRow}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setReplyingToCommentId(c.id);
-                    }}
-                  >
-                    <Text style={styles.replyActionText}>💬 Reply</Text>
-                  </TouchableOpacity>
-
-                  {c.replyCount > 0 && !repliesMap[c.id] && (
-                    <TouchableOpacity onPress={() => loadRepliesForComment(c.id)}>
-                      <Text style={styles.viewRepliesText}>
-                        View {c.replyCount} {c.replyCount === 1 ? 'reply' : 'replies'}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {/* 1-Level Replies */}
-                {replies.map((reply) => (
-                  <View key={reply.id} style={styles.replyCard}>
-                    <Text style={styles.replyAuthor}>
-                      ↳ {reply.authorUserId === user?.id ? 'You' : 'Resident'}
+          {comments.length === 0 ? (
+            <View style={styles.emptyCommentsCard}>
+              <Text style={styles.emptyCommentsIcon}>💬</Text>
+              <Text style={styles.emptyCommentsTitle}>No community comments yet</Text>
+              <Text style={styles.emptyCommentsSubtitle}>
+                Be the first neighbor or community member to share updates or ask questions about this report.
+              </Text>
+            </View>
+          ) : (
+            comments.map((c) => {
+              const replies = repliesMap[c.id] || [];
+              return (
+                <View key={c.id} style={styles.commentCard}>
+                  <View style={styles.commentHeader}>
+                    <Text style={styles.commentAuthor}>
+                      {c.authorUserId === user?.id ? 'You' : 'Resident'}
                     </Text>
-                    <Text style={styles.replyContent}>{reply.content}</Text>
+                    <Text style={styles.commentDate}>
+                      {new Date(c.createdAt).toLocaleDateString()}
+                    </Text>
                   </View>
-                ))}
-              </View>
-            );
-          })}
+                  <Text style={styles.commentContent}>{c.content}</Text>
+
+                  <View style={styles.commentActionRow}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setReplyingToCommentId(c.id);
+                      }}
+                    >
+                      <Text style={styles.replyActionText}>💬 Reply</Text>
+                    </TouchableOpacity>
+
+                    {c.replyCount > 0 && !repliesMap[c.id] && (
+                      <TouchableOpacity onPress={() => loadRepliesForComment(c.id)}>
+                        <Text style={styles.viewRepliesText}>
+                          View {c.replyCount} {c.replyCount === 1 ? 'reply' : 'replies'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* 1-Level Replies */}
+                  {replies.map((reply) => (
+                    <View key={reply.id} style={styles.replyCard}>
+                      <Text style={styles.replyAuthor}>
+                        ↳ {reply.authorUserId === user?.id ? 'You' : 'Resident'}
+                      </Text>
+                      <Text style={styles.replyContent}>{reply.content}</Text>
+                    </View>
+                  ))}
+                </View>
+              );
+            })
+          )}
 
           {/* Comments Pagination Loader & Error Recovery */}
           {isFetchingMoreComments && (
@@ -1291,6 +1301,34 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontWeight: '500',
   },
+  emptyCommentsCard: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    padding: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: spacing.sm,
+  },
+  emptyCommentsIcon: {
+    fontSize: 26,
+    marginBottom: spacing.xs,
+  },
+  emptyCommentsTitle: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  emptyCommentsSubtitle: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 18,
+    maxWidth: 280,
+  },
   // Representatives Section Styles
   representativesSection: {
     marginBottom: spacing.md,
@@ -1307,6 +1345,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderSubtle,
     padding: spacing.md,
+    alignItems: 'center',
   },
   noRepText: {
     fontSize: typography.sizes.xs,

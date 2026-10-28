@@ -259,7 +259,41 @@ export const BeforeAfterEvidence: React.FC<BeforeAfterEvidenceProps> = ({
     );
   }
 
-  return null;
+  // Case D: No original photo attached and no resolution evidence yet
+  return (
+    <View style={styles.container}>
+      <View style={styles.headerRow}>
+        <Text style={styles.sectionHeading}>📸 Issue Photograph & Evidence</Text>
+      </View>
+
+      <View style={styles.emptyEvidenceContainer}>
+        <Text style={styles.emptyEvidenceIcon}>📷</Text>
+        <Text style={styles.emptyEvidenceTitle}>No photos attached to this report</Text>
+        <Text style={styles.emptyEvidenceSubtitle}>
+          {isResolved
+            ? 'This issue was inspected and resolved on-site without photographic evidence.'
+            : 'Visual verification helps municipal workers and citizens track issue progress.'}
+        </Text>
+
+        {!isResolved && canUploadEvidence && onAddResolutionPhotoPress && (
+          <TouchableOpacity
+            style={styles.addEvidenceActionRow}
+            onPress={onAddResolutionPhotoPress}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.addEvidenceActionIcon}>📷</Text>
+            <View style={styles.addEvidenceActionTextWrap}>
+              <Text style={styles.addEvidenceActionTitle}>Add Resolution Photo</Text>
+              <Text style={styles.addEvidenceActionSub}>
+                Upload verification photo showing the site condition.
+              </Text>
+            </View>
+            <Text style={styles.addEvidenceArrow}>→</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    </View>
+  );
 };
 
 const styles = StyleSheet.create({
@@ -560,5 +594,33 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: typography.weights.bold,
     marginLeft: spacing.xs,
+  },
+  emptyEvidenceContainer: {
+    padding: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+  },
+  emptyEvidenceIcon: {
+    fontSize: 32,
+    marginBottom: spacing.xs,
+  },
+  emptyEvidenceTitle: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  emptyEvidenceSubtitle: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: spacing.xs,
+    lineHeight: 18,
   },
 });

@@ -711,6 +711,28 @@ export const CommunityMap: React.FC<CommunityMapProps> = ({
         </TouchableOpacity>
       </View>
 
+      {/* Map Empty State: Displayed when no reports match current filters or viewport */}
+      {!isLoading && groupedMarkers.length === 0 && !selectedGroup && (
+        <View style={styles.mapEmptyOverlay} pointerEvents="box-none">
+          <View style={styles.mapEmptyCard}>
+            <Text style={styles.mapEmptyIcon}>🗺️</Text>
+            <Text style={styles.mapEmptyTitle}>No civic issues mapped here</Text>
+            <Text style={styles.mapEmptySubtitle}>
+              {selectedCategory || selectedStatus
+                ? 'No reports match your active filters in this area. Try clearing filters or zooming out.'
+                : 'There are currently no active civic reports mapped in this region.'}
+            </Text>
+            <TouchableOpacity
+              style={styles.mapEmptyActionBtn}
+              onPress={handleResetToState}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.mapEmptyActionText}>View Entire State</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {/* Map Legend (Semantic Urgency Colors) */}
       <View style={styles.legendContainer}>
         <View style={styles.legendRow}>
@@ -983,6 +1005,56 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xxs,
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
+  },
+  mapEmptyOverlay: {
+    position: 'absolute',
+    top: 90,
+    left: spacing.md,
+    right: spacing.md,
+    alignItems: 'center',
+    zIndex: 40,
+    elevation: 8,
+  },
+  mapEmptyCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    alignItems: 'center',
+    maxWidth: 340,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadows.card,
+  },
+  mapEmptyIcon: {
+    fontSize: 28,
+    marginBottom: 4,
+  },
+  mapEmptyTitle: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: 2,
+    textAlign: 'center',
+  },
+  mapEmptySubtitle: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 16,
+    marginBottom: spacing.sm,
+  },
+  mapEmptyActionBtn: {
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: '#D4E2FC',
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 5,
+  },
+  mapEmptyActionText: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.bold,
+    color: colors.primary,
   },
   previewSheet: {
     position: 'absolute',

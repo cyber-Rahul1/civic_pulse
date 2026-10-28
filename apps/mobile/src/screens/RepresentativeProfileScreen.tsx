@@ -387,10 +387,25 @@ export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenPr
           {reports.length === 0 ? (
             <View style={styles.emptyReportsBox}>
               <Text style={styles.emptyReportsIcon}>📭</Text>
-              <Text style={styles.emptyReportsTitle}>No reports in this category</Text>
-              <Text style={styles.emptyReportsText}>
-                There are no reports recorded with status {activeTab} for {profile.jurisdictionName}.
+              <Text style={styles.emptyReportsTitle}>
+                {activeTab === 'ALL'
+                  ? `No civic reports recorded yet`
+                  : `No ${activeTab.replace('_', ' ').toLowerCase()} reports`}
               </Text>
+              <Text style={styles.emptyReportsText}>
+                {activeTab === 'ALL'
+                  ? `There are no civic reports on record yet for ${profile.jurisdictionName}.`
+                  : `There are currently no reports with status "${activeTab.replace('_', ' ').toLowerCase()}" for this constituency.`}
+              </Text>
+              {activeTab !== 'ALL' && (
+                <TouchableOpacity
+                  style={styles.emptyReportsResetBtn}
+                  onPress={() => setActiveTab('ALL')}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.emptyReportsResetText}>View All Reports</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <View style={styles.reportsGrid}>
@@ -929,6 +944,20 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     maxWidth: 240,
+  },
+  emptyReportsResetBtn: {
+    marginTop: spacing.md,
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: '#D4E2FC',
+    borderRadius: radii.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  emptyReportsResetText: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.bold,
+    color: colors.primary,
   },
   reportsGrid: {
     flexDirection: 'row',
