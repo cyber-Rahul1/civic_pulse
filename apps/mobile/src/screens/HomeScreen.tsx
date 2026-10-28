@@ -16,6 +16,7 @@ import { EmptyState, ErrorState } from '../components/FeedbackStates';
 import { CommunityMap } from '../components/CommunityMap';
 import { SkeletonReportCard, ShimmerSkeleton } from '../components/ShimmerSkeleton';
 import { Input } from '../components/Input';
+import { BottomNavBar } from '../components/BottomNavBar';
 import { MapRegion } from '../utils/map-utils';
 import { colors, radii, shadows, spacing, typography } from '../theme/tokens';
 
@@ -706,61 +707,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </View>
       )}
 
-      {/* High-Contrast Bottom Navigation Bar */}
-      <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={styles.bottomNavItem}
-          onPress={() => handleSelectTab('feed')}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.bottomNavIcon, activeTab === 'feed' && styles.bottomNavIconActive]}>
-            🏠
-          </Text>
-          <Text style={[styles.bottomNavLabel, activeTab === 'feed' && styles.bottomNavLabelActive]}>
-            Home
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.bottomNavItem}
-          onPress={() => handleSelectTab('map')}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.bottomNavIcon, activeTab === 'map' && styles.bottomNavIconActive]}>
-            🗺️
-          </Text>
-          <Text style={[styles.bottomNavLabel, activeTab === 'map' && styles.bottomNavLabelActive]}>
-            Map
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.bottomNavItem}
-          onPress={onOpenMyReports || onCreateReport}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.bottomNavIcon}>📋</Text>
-          <Text style={styles.bottomNavLabel}>My Reports</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.bottomNavItem}
-          onPress={onOpenRepresentatives}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.bottomNavIcon}>🏛️</Text>
-          <Text style={styles.bottomNavLabel}>Directory</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.bottomNavItem}
-          onPress={onOpenProfile}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.bottomNavIcon}>👤</Text>
-          <Text style={styles.bottomNavLabel}>Profile</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Unified High-Contrast Bottom Navigation Bar */}
+      <BottomNavBar
+        activeTab={activeTab === 'map' ? 'map' : 'home'}
+        onSelectTab={(tab) => {
+          if (tab === 'home') {
+            handleSelectTab('feed');
+          } else if (tab === 'map') {
+            handleSelectTab('map');
+          } else if (tab === 'my_reports') {
+            if (onOpenMyReports) onOpenMyReports();
+            else onCreateReport();
+          } else if (tab === 'directory') {
+            if (onOpenRepresentatives) onOpenRepresentatives();
+          } else if (tab === 'profile') {
+            if (onOpenProfile) onOpenProfile();
+          }
+        }}
+      />
     </View>
   );
 };

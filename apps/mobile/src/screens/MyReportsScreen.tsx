@@ -16,6 +16,7 @@ import { EmptyState, ErrorState } from '../components/FeedbackStates';
 import { SkeletonReportCard, ShimmerSkeleton } from '../components/ShimmerSkeleton';
 import { Input } from '../components/Input';
 import { BackButton } from '../components/BackButton';
+import { BottomNavBar, BottomNavTab } from '../components/BottomNavBar';
 import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface MyReportsScreenProps {
@@ -24,6 +25,7 @@ interface MyReportsScreenProps {
   onCreateReport: () => void;
   onNavigateToLocation?: (reportId: string, coordinates: [number, number]) => void;
   onLogin?: () => void;
+  onSelectTab?: (tab: BottomNavTab) => void;
 }
 
 export const MyReportsScreen: React.FC<MyReportsScreenProps> = ({
@@ -32,6 +34,7 @@ export const MyReportsScreen: React.FC<MyReportsScreenProps> = ({
   onCreateReport,
   onNavigateToLocation,
   onLogin,
+  onSelectTab,
 }) => {
   const { user } = useAuth();
   const [reports, setReports] = useState<ReportDto[]>([]);
@@ -500,6 +503,14 @@ export const MyReportsScreen: React.FC<MyReportsScreenProps> = ({
           />
         )}
       </View>
+
+      {/* Persistent Bottom Navigation Bar */}
+      {onSelectTab && (
+        <BottomNavBar
+          activeTab="my_reports"
+          onSelectTab={onSelectTab}
+        />
+      )}
     </View>
   );
 };
@@ -591,12 +602,9 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   searchCustomInput: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#CBD5E1',
     fontSize: 14,
     color: '#0F172A',
+    fontWeight: '500',
   },
   searchIcon: {
     fontSize: 14,

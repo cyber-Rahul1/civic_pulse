@@ -12,14 +12,16 @@ import { useAuth } from '../context/auth-context';
 import { apiClient } from '../api/api-client';
 import { Button } from '../components/Button';
 import { BackButton } from '../components/BackButton';
+import { BottomNavBar, BottomNavTab } from '../components/BottomNavBar';
 import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface ProfileScreenProps {
   onBack: () => void;
   onLogin?: () => void;
+  onSelectTab?: (tab: BottomNavTab) => void;
 }
 
-export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack, onLogin }) => {
+export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack, onLogin, onSelectTab }) => {
   const { user, logout, updateUser } = useAuth();
   const [preferences, setPreferences] = useState<NotificationPreferencesDto | null>(null);
   const [isLoadingPrefs, setIsLoadingPrefs] = useState(true);
@@ -360,6 +362,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ onBack, onLogin })
           </View>
         )}
       </ScrollView>
+
+      {/* Persistent Bottom Navigation Bar */}
+      {onSelectTab && (
+        <BottomNavBar
+          activeTab="profile"
+          onSelectTab={onSelectTab}
+        />
+      )}
     </View>
   );
 };

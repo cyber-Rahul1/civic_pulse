@@ -12,6 +12,7 @@ import { RepresentativesDirectoryScreen } from './screens/RepresentativesDirecto
 import { RepresentativeProfileScreen } from './screens/RepresentativeProfileScreen';
 import { MyReportsScreen } from './screens/MyReportsScreen';
 import { LoginPromptModal } from './components/LoginPromptModal';
+import { BottomNavTab } from './components/BottomNavBar';
 import { ReportCategory, ReportStatus } from '@civic-pulse/contracts';
 import { MapRegion } from './utils/map-utils';
 import { colors } from './theme/tokens';
@@ -79,6 +80,28 @@ const MainNavigator: React.FC = () => {
     }
   };
 
+  const handleBottomNavSelect = (tab: BottomNavTab) => {
+    switch (tab) {
+      case 'home':
+        setActiveHomeTab('feed');
+        setCurrentScreen({ name: 'HOME' });
+        break;
+      case 'map':
+        setActiveHomeTab('map');
+        setCurrentScreen({ name: 'HOME' });
+        break;
+      case 'my_reports':
+        setCurrentScreen({ name: 'MY_REPORTS' });
+        break;
+      case 'directory':
+        setCurrentScreen({ name: 'REPRESENTATIVES_DIRECTORY' });
+        break;
+      case 'profile':
+        setCurrentScreen({ name: 'PROFILE' });
+        break;
+    }
+  };
+
   const renderContent = () => {
     switch (currentScreen.name) {
       case 'AUTH':
@@ -99,6 +122,7 @@ const MainNavigator: React.FC = () => {
             onCreateReport={handleAttemptCreateReport}
             onNavigateToLocation={handleNavigateToReportLocation}
             onLogin={() => setCurrentScreen({ name: 'AUTH' })}
+            onSelectTab={handleBottomNavSelect}
           />
         );
 
@@ -153,6 +177,7 @@ const MainNavigator: React.FC = () => {
           <ProfileScreen
             onBack={() => setCurrentScreen({ name: 'HOME' })}
             onLogin={() => setCurrentScreen({ name: 'AUTH' })}
+            onSelectTab={handleBottomNavSelect}
           />
         );
 
@@ -173,6 +198,7 @@ const MainNavigator: React.FC = () => {
             onSelectRepresentative={(repId) =>
               setCurrentScreen({ name: 'REPRESENTATIVE_PROFILE', representativeId: repId })
             }
+            onSelectTab={handleBottomNavSelect}
           />
         );
 

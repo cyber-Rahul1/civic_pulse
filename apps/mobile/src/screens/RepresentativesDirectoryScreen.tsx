@@ -19,11 +19,13 @@ import { ErrorState, EmptyState } from '../components/FeedbackStates';
 import { SkeletonRepresentativeCard, ShimmerSkeleton } from '../components/ShimmerSkeleton';
 import { Input } from '../components/Input';
 import { BackButton } from '../components/BackButton';
+import { BottomNavBar, BottomNavTab } from '../components/BottomNavBar';
 import { useDebounce } from '../hooks/useDebounce';
 
 interface RepresentativesDirectoryScreenProps {
   onBack: () => void;
   onSelectRepresentative: (id: string) => void;
+  onSelectTab?: (tab: BottomNavTab) => void;
 }
 
 const OFFICE_TYPE_TABS: Array<{ label: string; value?: string }> = [
@@ -37,6 +39,7 @@ const OFFICE_TYPE_TABS: Array<{ label: string; value?: string }> = [
 export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectoryScreenProps> = ({
   onBack,
   onSelectRepresentative,
+  onSelectTab,
 }) => {
   const [representatives, setRepresentatives] = useState<RepresentativeProfileDto[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -284,6 +287,14 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
               </View>
             ) : null
           }
+        />
+      )}
+
+      {/* Persistent Bottom Navigation Bar */}
+      {onSelectTab && (
+        <BottomNavBar
+          activeTab="directory"
+          onSelectTab={onSelectTab}
         />
       )}
     </View>
