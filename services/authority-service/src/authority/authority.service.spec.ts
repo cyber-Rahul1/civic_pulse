@@ -1035,5 +1035,73 @@ describe('AuthorityService (Unit & Policy Tests)', () => {
         expect(mp.verificationStatus).toBe('VERIFIED_OFFICIAL');
       }
     });
+
+    it('12. should return enriched report representative associations for report detail view', async () => {
+      await service.syncOfficialRepresentativeData();
+
+      // Submit matching report
+      await service.matchAndAssociateReport({
+        reportId: 'rep-detail-999',
+        category: 'POTHOLE',
+        coordinates: [83.37, 17.79],
+        administrativeContext: {
+          districtId: 'visakhapatnam',
+          mandalId: 'bheemunipatnam',
+        },
+        status: 'OPEN' as any,
+      });
+
+      const associations = await service.getReportAssociations('rep-detail-999');
+      expect(associations.length).toBeGreaterThanOrEqual(1);
+
+      for (const assoc of associations) {
+        expect(assoc.reportId).toBe('rep-detail-999');
+        expect(assoc.representativeId).toBeDefined();
+        expect(assoc.representativeName).toBeDefined();
+        expect(assoc.officialDesignation).toBeDefined();
+        expect(assoc.jurisdictionName).toBeDefined();
+      }
+
+      // Empty list for report with no associations
+      const emptyAssocs = await service.getReportAssociations('non-existent-report-000');
+      expect(emptyAssocs).toEqual([]);
+    });
+
+    it('13. should exclude former mayors, former councillors, and former MPs from report associations', async () => {
+      await service.syncOfficialRepresentativeData();
+
+      // Submit matching report in Visakhapatnam where former mayors and former corporators exist
+      const matchResult = await service.matchAndAssociateReport({
+        reportId: 'rep-former-check-101',
+        category: 'POTHOLE',
+        coordinates: [83.37, 17.79],
+        administrativeContext: {
+          districtId: 'visakhapatnam',
+          mandalId: 'bheemunipatnam',
+        },
+        status: 'OPEN' as any,
+      });
+
+      // Verify no former representatives were matched or associated
+      const matchedRepIds = matchResult.matchedRepresentatives.map((r) => r.id);
+      expect(matchedRepIds).not.toContain('rep_mayor_gvmc');
+      expect(matchedRepIds).not.toContain('rep_ward_gvmc_12_councillor');
+      expect(matchedRepIds).not.toContain('rep_ward_gvmc_65_councillor');
+      expect(matchedRepIds).not.toContain('rep_mla_former_mvv');
+
+      // Verify DB associations collection contains only CURRENT representatives
+      const assocs = await (mockDbService as any).reportAssociations
+        .find({ reportId: 'rep-former-check-101' })
+        .toArray();
+      expect(assocs.length).toBeGreaterThan(0);
+      for (const a of assocs) {
+        expect(['rep_mayor_gvmc', 'rep_ward_gvmc_12_councillor', 'rep_ward_gvmc_65_councillor', 'rep_mla_former_mvv']).not.toContain(a.representativeId);
+      }
+
+      // But verify historical profiles themselves are fully preserved
+      const formerMayor = await service.getRepresentativeById('rep_mayor_gvmc');
+      expect(formerMayor).toBeDefined();
+      expect(formerMayor.termStatus).toBe('FORMER');
+    });
   });
 });

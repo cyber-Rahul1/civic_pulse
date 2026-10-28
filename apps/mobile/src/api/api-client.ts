@@ -40,6 +40,8 @@ import {
   SubmitProfileClaimDto,
   SubmitResolutionEvidenceDto,
   VerifyResolutionEvidenceDto,
+  ReportRepresentativeAssociationDto,
+  VerifyCurrentLocationDto,
 } from '@civic-pulse/contracts';
 import { mobileConfig } from '../config/env';
 import { secureStorage } from '../storage/secure-storage';
@@ -269,6 +271,19 @@ export class ApiClient {
       requiresAuth: true,
     });
   }
+
+  async verifyCurrentLocation(dto: VerifyCurrentLocationDto): Promise<UserProfileDto> {
+    const updatedProfile = await this.request<UserProfileDto>('api/v1/auth/me/location', {
+      method: 'PUT',
+      body: dto,
+      requiresAuth: true,
+    });
+    if (updatedProfile) {
+      await secureStorage.setItemAsync('civic_user_profile', JSON.stringify(updatedProfile));
+    }
+    return updatedProfile;
+  }
+
 
   // ===========================================================================
   // 2. Reports & Media APIs
@@ -614,6 +629,15 @@ export class ApiClient {
         body: dto,
         requiresAuth: true,
       }
+    );
+  }
+
+  async getReportRepresentatives(
+    reportId: string
+  ): Promise<ReportRepresentativeAssociationDto[]> {
+    return this.request<ReportRepresentativeAssociationDto[]>(
+      `api/v1/reports/${reportId}/representatives`,
+      { method: 'GET' }
     );
   }
 

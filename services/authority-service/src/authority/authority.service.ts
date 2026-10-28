@@ -43,6 +43,7 @@ import {
   ResolutionEvidenceDto,
   ProfileClaimRequestDto,
   RepresentativeImportSummaryDto,
+  ReportRepresentativeAssociationDto,
   JurisdictionDto,
   RepresentativeOfficeType,
   RepresentativeTermStatus,
@@ -103,6 +104,15 @@ export class AuthorityService {
     this.notificationsInternalKey =
       this.configService.get<string>('NOTIFICATIONS_INTERNAL_KEY') ||
       'civic_pulse_notifications_internal_secret_dev';
+  }
+
+  async onModuleInit(): Promise<void> {
+    try {
+      this.logger.log('AuthorityService initialized. Running initial representative synchronization...');
+      await this.syncOfficialRepresentativeData();
+    } catch (err: any) {
+      this.logger.error(`Initial representative synchronization failed: ${err.message}`, err.stack);
+    }
   }
 
   // ===========================================================================
@@ -954,6 +964,18 @@ export class AuthorityService {
           existing.termEndDate?.getTime() !== rep.termEndDate?.getTime();
 
         if (hasChange) {
+          // If the profile has been modified by an administrator or claimed representative,
+          // preserve user/admin edits (e.g. customized biography, verified photos, contact overrides, claim state)
+          const isUserModified = existing.claimStatus === ProfileClaimStatus.CLAIMED_VERIFIED ||
+            (existing.updatedAt && existing.createdAt && existing.updatedAt.getTime() > existing.createdAt.getTime());
+
+          const preservedBiography = isUserModified && existing.biography ? existing.biography : (rep.biography || existing.biography);
+          const preservedContactDetails = isUserModified && existing.contactDetails
+            ? { ...rep.contactDetails, ...existing.contactDetails }
+            : (rep.contactDetails || existing.contactDetails);
+          const preservedPhotoUrl = existing.isPhotoVerified && existing.photoUrl ? existing.photoUrl : (rep.photoUrl || existing.photoUrl);
+          const preservedPhotoVerified = existing.isPhotoVerified ?? rep.isPhotoVerified;
+
           await this.db.representatives.updateOne(
             { _id: existing._id },
             {
@@ -963,12 +985,16 @@ export class AuthorityService {
                 partyAffiliation: rep.partyAffiliation,
                 jurisdictionName: rep.jurisdictionName,
                 verificationStatus: rep.verificationStatus,
-                biography: rep.biography || existing.biography,
+                biography: preservedBiography,
                 termStartDate: rep.termStartDate || existing.termStartDate,
                 termEndDate: rep.termEndDate,
                 sourceProvenance: rep.sourceProvenance,
                 lastVerifiedAt: rep.lastVerifiedAt,
-                contactDetails: rep.contactDetails || existing.contactDetails,
+                contactDetails: preservedContactDetails,
+                photoUrl: preservedPhotoUrl,
+                isPhotoVerified: preservedPhotoVerified,
+                claimStatus: existing.claimStatus || rep.claimStatus,
+                claimedByUserId: existing.claimedByUserId,
                 updatedAt: now,
               },
             },
@@ -1382,9 +1408,13 @@ export class AuthorityService {
       };
     }
 
-    // 5. Persist associations idempotently
+    // 5. Persist associations idempotently (Strictly CURRENT representatives only; former officeholders excluded)
     let associationsCreated = 0;
     for (const match of matchedReps) {
+      if (match.rep.termStatus !== RepresentativeTermStatus.CURRENT) {
+        continue;
+      }
+
       const associationId = `${reportData.reportId}_${match.rep._id}_${match.relType}`;
 
       const res = await this.db.reportAssociations.updateOne(
@@ -1439,6 +1469,45 @@ export class AuthorityService {
       },
     );
     return res.modifiedCount;
+  }
+
+  async getReportAssociations(reportId: string): Promise<ReportRepresentativeAssociationDto[]> {
+    const associations = await this.db.reportAssociations
+      .find({ reportId, isActive: true })
+      .sort({ associatedAt: 1 })
+      .toArray();
+
+    if (associations.length === 0) {
+      return [];
+    }
+
+    const repIds = associations.map((a) => a.representativeId);
+    const reps = await this.db.representatives
+      .find({ _id: { $in: repIds } })
+      .toArray();
+    const repMap = new Map(reps.map((r) => [r._id, r]));
+
+    return associations.map((a) => {
+      const rep = repMap.get(a.representativeId);
+      return {
+        id: a._id,
+        reportId: a.reportId,
+        representativeId: a.representativeId,
+        representativeName: a.representativeName,
+        officeType: a.officeType,
+        officialDesignation: rep?.officialDesignation,
+        partyAffiliation: rep?.partyAffiliation,
+        photoUrl: rep?.photoUrl,
+        isPhotoVerified: rep?.isPhotoVerified ?? false,
+        verificationStatus: rep?.verificationStatus,
+        jurisdictionId: a.jurisdictionId,
+        jurisdictionName: a.jurisdictionName,
+        relationshipType: a.relationshipType,
+        matchingMethod: a.matchingMethod,
+        isActive: a.isActive,
+        associatedAt: a.associatedAt.toISOString(),
+      };
+    });
   }
 
   // ===========================================================================

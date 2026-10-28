@@ -89,6 +89,11 @@ export interface ReportRepresentativeAssociationDto {
   representativeId: string;
   representativeName: string;
   officeType: RepresentativeOfficeType;
+  officialDesignation?: string;
+  partyAffiliation?: string;
+  photoUrl?: string;
+  isPhotoVerified?: boolean;
+  verificationStatus?: RepresentativeVerificationStatus;
   jurisdictionId: string;
   jurisdictionName: string;
   relationshipType: ReportRepresentativeRelationType;

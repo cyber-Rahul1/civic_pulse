@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { ReportStatus } from '@civic-pulse/contracts';
-import { colors, radii, spacing, typography } from '../theme/tokens';
+import { radii, typography } from '../theme/tokens';
 
 interface StatusBadgeProps {
   status: ReportStatus;
@@ -12,45 +12,52 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
     switch (status) {
       case ReportStatus.SUBMITTED:
         return {
-          label: 'Submitted',
-          bg: '#F1F5F9',
-          color: colors.statusSubmitted,
+          label: 'SUBMITTED',
+          bg: '#EAF0F8',
+          border: '#D3DEEE',
+          color: '#3A5478',
         };
       case ReportStatus.UNDER_REVIEW:
         return {
-          label: 'Under Review',
-          bg: '#FEF3C7',
-          color: colors.statusUnderReview,
+          label: 'UNDER REVIEW',
+          bg: '#FEF8EA',
+          border: '#FDE19E',
+          color: '#B7791F',
         };
       case ReportStatus.IN_PROGRESS:
         return {
-          label: 'In Progress',
-          bg: '#DBEAFE',
-          color: colors.statusInProgress,
+          label: 'IN PROGRESS',
+          bg: '#EBF3FF',
+          border: '#C0D9FD',
+          color: '#2862D8',
         };
       case ReportStatus.RESOLVED:
         return {
-          label: 'Resolved',
-          bg: '#DCFCE7',
-          color: colors.statusResolved,
+          label: 'RESOLVED',
+          bg: '#EDFAF2',
+          border: '#B6E8CA',
+          color: '#158455',
         };
       case ReportStatus.REJECTED:
         return {
-          label: 'Rejected',
-          bg: '#FEE2E2',
-          color: colors.statusRejected,
+          label: 'REJECTED',
+          bg: '#FDF2F4',
+          border: '#F9D2D7',
+          color: '#C73E4D',
         };
       case ReportStatus.REOPENED:
         return {
-          label: 'Reopened',
-          bg: '#F3E8FF',
-          color: colors.statusReopened,
+          label: 'REOPENED',
+          bg: '#F5F3FF',
+          border: '#DDD6FE',
+          color: '#7C3AED',
         };
       default:
         return {
-          label: status,
-          bg: '#F1F5F9',
-          color: colors.textSecondary,
+          label: String(status).toUpperCase(),
+          bg: '#F1F4F8',
+          border: '#E2E8F0',
+          color: '#55657E',
         };
     }
   };
@@ -58,7 +65,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
   const config = getBadgeConfig();
 
   return (
-    <View style={[styles.badge, { backgroundColor: config.bg }]}>
+    <View style={[styles.badge, { backgroundColor: config.bg, borderColor: config.border }]}>
       <Text style={[styles.text, { color: config.color }]}>{config.label}</Text>
     </View>
   );
@@ -66,14 +73,15 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
 
 const styles = StyleSheet.create({
   badge: {
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: spacing.xs,
+    paddingHorizontal: 10,
+    paddingVertical: 3.5,
     borderRadius: radii.pill,
+    borderWidth: 1,
     alignSelf: 'flex-start',
   },
   text: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.semibold,
-    textTransform: 'uppercase',
+    fontSize: 10,
+    fontWeight: typography.weights.bold,
+    letterSpacing: 0.4,
   },
 });

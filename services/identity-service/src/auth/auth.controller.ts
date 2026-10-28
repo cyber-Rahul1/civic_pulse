@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Put,
   Body,
   UseGuards,
   HttpCode,
@@ -34,6 +35,7 @@ import {
   LoginDto,
   RefreshTokenDto,
   LogoutDto,
+  VerifyLocationDto,
 } from '../dto/auth.dto.js';
 
 @ApiTags('Authentication')
@@ -115,6 +117,37 @@ export class AuthController {
   async me(@CurrentUser() user: JwtTokenPayload): Promise<UserProfileDto> {
     return this.authService.getProfile(user.sub);
   }
+
+  @UseGuards(IdentityJwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Put('me/location')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify and update user current GPS location' })
+  @SwaggerResponse({ status: 200, description: 'Verified location updated' })
+  @SwaggerResponse({ status: 400, description: 'Invalid coordinates or stale fix' })
+  @SwaggerResponse({ status: 401, description: 'Unauthorized' })
+  async updateLocation(
+    @CurrentUser() user: JwtTokenPayload,
+    @Body() dto: VerifyLocationDto,
+  ): Promise<UserProfileDto> {
+    return this.authService.verifyUserLocation(user.sub, dto);
+  }
+
+  @UseGuards(IdentityJwtAuthGuard)
+  @ApiBearerAuth('JWT-auth')
+  @Post('me/location')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify and update user current GPS location' })
+  @SwaggerResponse({ status: 200, description: 'Verified location updated' })
+  @SwaggerResponse({ status: 400, description: 'Invalid coordinates or stale fix' })
+  @SwaggerResponse({ status: 401, description: 'Unauthorized' })
+  async postLocation(
+    @CurrentUser() user: JwtTokenPayload,
+    @Body() dto: VerifyLocationDto,
+  ): Promise<UserProfileDto> {
+    return this.authService.verifyUserLocation(user.sub, dto);
+  }
+
 
   @Public()
   @Get('public-key')

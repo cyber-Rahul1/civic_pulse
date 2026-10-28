@@ -1968,6 +1968,114 @@ export function validateAdministrativeConsistency(
   return { isValid: true, district, mandal, locality };
 }
 
+export interface ResolvedLocationResult {
+  isInsideAP: boolean;
+  state: string;
+  districtId?: string;
+  districtName?: string;
+  cityOrTown?: string;
+  mandalId?: string;
+  mandalName?: string;
+  distanceToDistrictCenterKm?: number;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'AMBIGUOUS' | 'OUTSIDE';
+}
+
+/**
+ * Authoritative server- and client-shared geographic resolver.
+ * Resolves GPS coordinates [lng, lat] to Andhra Pradesh district, mandal, and city/town.
+ * Does not trust user-typed city or state.
+ */
+export function resolveLocationFromCoordinates(
+  lat: number,
+  lng: number,
+  accuracyMeters?: number
+): ResolvedLocationResult {
+  // Check strict state boundary polygon
+  const insideAP = isCoordinateInAndhraPradesh(lat, lng);
+  if (!insideAP) {
+    return {
+      isInsideAP: false,
+      state: 'Outside Andhra Pradesh',
+      confidence: 'OUTSIDE',
+    };
+  }
+
+  // If GPS accuracy is worse than 3000m (3km), city determination is ambiguous
+  if (accuracyMeters !== undefined && accuracyMeters > 3000) {
+    return {
+      isInsideAP: true,
+      state: 'Andhra Pradesh',
+      confidence: 'AMBIGUOUS',
+    };
+  }
+
+  // Find nearest district center and mandals
+  let closestDistrict: DistrictHierarchyItem | null = null;
+  let minDistrictDist = Infinity;
+
+  let closestMandal: MandalItem | null = null;
+  let minMandalDist = Infinity;
+
+  for (const district of AP_DISTRICTS_DATA) {
+    const distKm = calculateHaversineDistanceKm(
+      lat,
+      lng,
+      district.center.latitude,
+      district.center.longitude
+    );
+    if (distKm < minDistrictDist) {
+      minDistrictDist = distKm;
+      closestDistrict = district;
+    }
+
+    for (const mandal of district.mandals) {
+      const mandalDistKm = calculateHaversineDistanceKm(
+        lat,
+        lng,
+        mandal.center.latitude,
+        mandal.center.longitude
+      );
+      if (mandalDistKm < minMandalDist) {
+        minMandalDist = mandalDistKm;
+        closestMandal = mandal;
+      }
+    }
+  }
+
+  if (!closestDistrict) {
+    return {
+      isInsideAP: true,
+      state: 'Andhra Pradesh',
+      confidence: 'LOW',
+    };
+  }
+
+  // Determine city or town label from district headquarters or mandal name
+  let cityOrTown = closestDistrict.headquarters;
+  if (closestDistrict.headquarters) {
+    cityOrTown = closestDistrict.headquarters;
+  } else if (closestMandal && minMandalDist <= 20) {
+    cityOrTown = closestMandal.name;
+  }
+
+
+
+  const confidence: ResolvedLocationResult['confidence'] =
+    minDistrictDist <= 50 ? 'HIGH' : minDistrictDist <= 120 ? 'MEDIUM' : 'LOW';
+
+  return {
+    isInsideAP: true,
+    state: 'Andhra Pradesh',
+    districtId: closestDistrict.id,
+    districtName: closestDistrict.name,
+    cityOrTown,
+    mandalId: closestMandal?.id,
+    mandalName: closestMandal?.name,
+    distanceToDistrictCenterKm: Number(minDistrictDist.toFixed(2)),
+    confidence,
+  };
+}
+
 export const AP_DISTRICTS_DATA: DistrictHierarchyItem[] = [
   {
     "id": "alluri_sitharama_raju",

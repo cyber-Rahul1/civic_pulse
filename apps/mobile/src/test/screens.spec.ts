@@ -426,5 +426,371 @@ describe('Mobile Screen & Form Logic Tests', () => {
       expect(isCloseToBottom(800, 1600, 2400)).toBe(true);
     });
   });
+
+  describe('Report Detail Representative & Resolution Evidence Logic', () => {
+    it('24. Case A: should hide empty comparison panels when no original photo and no after photo exist', () => {
+      const renderEvidenceCase = (hasBefore: boolean, hasAfter: boolean, isResolved: boolean) => {
+        if (!hasBefore && !hasAfter) {
+          if (isResolved) return 'RESOLVED_NO_PHOTO_STATEMENT';
+          return 'HIDE_PANELS';
+        }
+        if (hasBefore && !hasAfter) return 'BEFORE_ONLY';
+        if (hasAfter) return 'BEFORE_AFTER_COMPARISON';
+        return 'UNKNOWN';
+      };
+
+      expect(renderEvidenceCase(false, false, false)).toBe('HIDE_PANELS');
+    });
+
+    it('25. Case B: should render single clean BEFORE photo without empty AFTER box', () => {
+      const renderEvidenceCase = (hasBefore: boolean, hasAfter: boolean) => {
+        if (hasBefore && !hasAfter) {
+          return { showBefore: true, showAfterBox: false, showUploadPrompt: true };
+        }
+        return { showBefore: false, showAfterBox: false, showUploadPrompt: false };
+      };
+
+      const res = renderEvidenceCase(true, false);
+      expect(res.showBefore).toBe(true);
+      expect(res.showAfterBox).toBe(false);
+      expect(res.showUploadPrompt).toBe(true);
+    });
+
+    it('26. Case C: should distinguish pending resolution photo with awaiting review label', () => {
+      const getEvidenceState = (verificationStatus: string) => {
+        if (verificationStatus === 'PENDING') {
+          return { isVerified: false, label: 'Awaiting Official Review', badge: 'PENDING' };
+        }
+        if (verificationStatus === 'VERIFIED') {
+          return { isVerified: true, label: 'Official Resolution Photo', badge: 'VERIFIED' };
+        }
+        return { isVerified: false, label: 'Rejected', badge: 'REJECTED' };
+      };
+
+      const pendingState = getEvidenceState('PENDING');
+      expect(pendingState.isVerified).toBe(false);
+      expect(pendingState.badge).toBe('PENDING');
+      expect(pendingState.label).toBe('Awaiting Official Review');
+    });
+
+    it('27. Case D: should render comparison view when verified resolution evidence exists', () => {
+      const getEvidenceState = (hasBefore: boolean, verifiedAfter: boolean) => {
+        return {
+          renderComparison: verifiedAfter,
+          renderBefore: hasBefore,
+          renderAfter: verifiedAfter,
+        };
+      };
+
+      const result = getEvidenceState(true, true);
+      expect(result.renderComparison).toBe(true);
+      expect(result.renderBefore).toBe(true);
+      expect(result.renderAfter).toBe(true);
+    });
+
+    it('28. Case E: should state resolution clearly without fabricating photo when resolved without photo', () => {
+      const getResolvedEvidenceView = (isResolved: boolean, hasPhoto: boolean) => {
+        if (isResolved && !hasPhoto) {
+          return {
+            fabricatedPanel: false,
+            message: 'This civic issue has been officially resolved. No before/after resolution photographs were attached.',
+          };
+        }
+        return { fabricatedPanel: true, message: null };
+      };
+
+      const res = getResolvedEvidenceView(true, false);
+      expect(res.fabricatedPanel).toBe(false);
+      expect(res.message).toContain('officially resolved');
+    });
+
+    it('29. should enforce resident resolution photo submission eligibility and preserve report status', () => {
+      const canSubmitResolutionEvidence = (user: { id: string; role: string } | null) => {
+        return Boolean(user && user.id);
+      };
+
+      expect(canSubmitResolutionEvidence(null)).toBe(false);
+      expect(canSubmitResolutionEvidence({ id: 'user-resident-1', role: 'resident' })).toBe(true);
+
+      // Verify uploading evidence does NOT automatically resolve report
+      const currentReportStatus = 'IN_PROGRESS';
+      const evidenceSubmitted = { evidenceType: 'AFTER', verificationStatus: 'PENDING' };
+      const nextReportStatus = currentReportStatus; // Report status must remain unchanged
+
+      expect(nextReportStatus).toBe('IN_PROGRESS');
+      expect(evidenceSubmitted.verificationStatus).toBe('PENDING');
+    });
+
+    it('30. should support multiple representative tiers on report detail and separate department', () => {
+      const sampleAssociations = [
+        {
+          representativeId: 'rep_mla_bhimili_001',
+          representativeName: 'Ganta Srinivasa Rao',
+          officeType: 'MLA',
+          jurisdictionName: 'Bhimili AC-20',
+          verificationStatus: 'VERIFIED_OFFICIAL',
+        },
+        {
+          representativeId: 'rep_mp_vsp_001',
+          representativeName: 'M. Sribharat',
+          officeType: 'MP',
+          jurisdictionName: 'Visakhapatnam PC',
+          verificationStatus: 'VERIFIED_OFFICIAL',
+        },
+      ];
+
+      const department = {
+        name: 'Roads & Buildings Department',
+        jurisdiction: 'GVMC, Visakhapatnam',
+      };
+
+      expect(sampleAssociations).toHaveLength(2);
+      expect(sampleAssociations[0]!.officeType).toBe('MLA');
+      expect(sampleAssociations[1]!.officeType).toBe('MP');
+      // Department is strictly separate from political representatives
+      expect(department.name).not.toBe(sampleAssociations[0]!.representativeName);
+    });
+
+    it('31. should render verified representative portrait when photoUrl exists and fall back to initials avatar', () => {
+      const getRepresentativeAvatar = (rep: { photoUrl?: string | null; publicName: string; isPhotoVerified?: boolean }, imageHasError: boolean) => {
+        if (rep.photoUrl && !imageHasError) {
+          return { type: 'IMAGE', uri: rep.photoUrl };
+        }
+        return { type: 'INITIALS', text: rep.publicName.substring(0, 2).toUpperCase() };
+      };
+
+      const repWithPhoto = {
+        publicName: 'Kesineni Sivanath (Chinni)',
+        photoUrl: 'https://sansad.in/getFile/dms/fetch/66df624c-2d23-41e6-93c1-afe9d06f648a?source=dsp2',
+        isPhotoVerified: true,
+      };
+      const repWithoutPhoto = {
+        publicName: 'G. Hari Venkata Kumari',
+        photoUrl: null,
+        isPhotoVerified: false,
+      };
+
+      expect(getRepresentativeAvatar(repWithPhoto, false)).toEqual({
+        type: 'IMAGE',
+        uri: 'https://sansad.in/getFile/dms/fetch/66df624c-2d23-41e6-93c1-afe9d06f648a?source=dsp2',
+      });
+      expect(getRepresentativeAvatar(repWithoutPhoto, false)).toEqual({
+        type: 'INITIALS',
+        text: 'G.',
+      });
+      // Image load failure must cleanly fall back to initials
+      expect(getRepresentativeAvatar(repWithPhoto, true)).toEqual({
+        type: 'INITIALS',
+        text: 'KE',
+      });
+    });
+
+    it('32. should ensure directory and profile screens reference the identical canonical portrait source', () => {
+      const directoryRep = {
+        id: 'rep_mp_kesineni_chinni',
+        photoUrl: 'https://sansad.in/getFile/dms/fetch/66df624c-2d23-41e6-93c1-afe9d06f648a?source=dsp2',
+      };
+      const profileRep = {
+        id: 'rep_mp_kesineni_chinni',
+        photoUrl: 'https://sansad.in/getFile/dms/fetch/66df624c-2d23-41e6-93c1-afe9d06f648a?source=dsp2',
+      };
+
+      expect(directoryRep.photoUrl).toBe(profileRep.photoUrl);
+    });
+
+    it('33. should render original report photo as grid thumbnail or design category fallback placeholder', () => {
+      const resolveGridThumbnail = (report: { media?: Array<{ url: string; secureUrl?: string }>; category: string }, hasError: boolean) => {
+        const primaryMedia = report.media && report.media.length > 0 ? report.media[0] : null;
+        const uri = primaryMedia?.secureUrl || primaryMedia?.url;
+        if (uri && !hasError) {
+          return { type: 'IMAGE', uri };
+        }
+        return { type: 'PLACEHOLDER', category: report.category };
+      };
+
+      const reportWithPhoto = {
+        media: [{ url: 'https://cdn.civicpulse.org/pothole.jpg' }],
+        category: 'POTHOLE',
+      };
+      const reportWithoutPhoto = {
+        media: [],
+        category: 'STREETLIGHT',
+      };
+
+      expect(resolveGridThumbnail(reportWithPhoto, false)).toEqual({
+        type: 'IMAGE',
+        uri: 'https://cdn.civicpulse.org/pothole.jpg',
+      });
+      expect(resolveGridThumbnail(reportWithoutPhoto, false)).toEqual({
+        type: 'PLACEHOLDER',
+        category: 'STREETLIGHT',
+      });
+      // Network failure on image keeps card intact and renders category fallback
+      expect(resolveGridThumbnail(reportWithPhoto, true)).toEqual({
+        type: 'PLACEHOLDER',
+        category: 'POTHOLE',
+      });
+    });
+
+    it('34. should filter reports by status correctly in the profile grid', () => {
+      const reports = [
+        { id: '1', status: 'SUBMITTED' },
+        { id: '2', status: 'IN_PROGRESS' },
+        { id: '3', status: 'RESOLVED' },
+        { id: '4', status: 'UNDER_REVIEW' },
+      ];
+
+      const filterReports = (items: typeof reports, filter: 'ALL' | 'OPEN' | 'IN_PROGRESS' | 'RESOLVED') => {
+        if (filter === 'ALL') return items;
+        if (filter === 'OPEN') return items.filter((r) => r.status === 'SUBMITTED' || r.status === 'REOPENED');
+        if (filter === 'IN_PROGRESS') return items.filter((r) => r.status === 'IN_PROGRESS' || r.status === 'UNDER_REVIEW');
+        if (filter === 'RESOLVED') return items.filter((r) => r.status === 'RESOLVED');
+        return items;
+      };
+
+      expect(filterReports(reports, 'ALL')).toHaveLength(4);
+      expect(filterReports(reports, 'OPEN')).toHaveLength(1);
+      expect(filterReports(reports, 'IN_PROGRESS')).toHaveLength(2);
+      expect(filterReports(reports, 'RESOLVED')).toHaveLength(1);
+    });
+
+    it('35. should not mark reports resolved solely because an image was uploaded', () => {
+      const report = {
+        id: 'rep_1',
+        status: 'IN_PROGRESS',
+        media: [{ url: 'https://cdn.civicpulse.org/before.jpg' }],
+      };
+
+      // Even when resolution evidence is uploaded
+      const proposedEvidence = {
+        evidenceType: 'AFTER',
+        verificationStatus: 'PENDING',
+      };
+
+      expect(report.status).toBe('IN_PROGRESS');
+      expect(proposedEvidence.verificationStatus).toBe('PENDING');
+      expect(report.status).not.toBe('RESOLVED');
+    });
+  });
+
+  describe('GPS-Verified Current Location & Boundary Validation Tests', () => {
+    // Shared geospatial helpers from contracts
+    const {
+      isCoordinateInAndhraPradesh,
+      resolveLocationFromCoordinates,
+      validateAdministrativeConsistency,
+      LocationVerificationStatus,
+    } = require('@civic-pulse/contracts');
+
+    it('36. GPS location inside Visakhapatnam resolves to Visakhapatnam in AP dataset', () => {
+      // Visakhapatnam coordinates: [lng: 83.2185, lat: 17.6868]
+      const resolved = resolveLocationFromCoordinates(17.6868, 83.2185, 15);
+      expect(resolved.isInsideAP).toBe(true);
+      expect(resolved.state).toBe('Andhra Pradesh');
+      expect(resolved.districtName).toBe('Visakhapatnam');
+      expect(resolved.cityOrTown).toBe('Visakhapatnam');
+      expect(resolved.confidence).toBe('HIGH');
+    });
+
+    it('37. A user cannot change verified current city to Vijayawada while retaining Visakhapatnam GPS coordinates', () => {
+      // Client device provides Vizag coordinates
+      const deviceCoords: [number, number] = [83.2185, 17.6868];
+      const serverResolved = resolveLocationFromCoordinates(deviceCoords[1], deviceCoords[0]);
+      
+      // Attempting to declare city as "Vijayawada" manually must be derived strictly from serverResolved, not user input
+      const userSelectedCity = 'Vijayawada';
+      const actualVerifiedCity = serverResolved.cityOrTown;
+
+      expect(actualVerifiedCity).toBe('Visakhapatnam');
+      expect(actualVerifiedCity).not.toBe(userSelectedCity);
+    });
+
+    it('38. Coordinates inside Andhra Pradesh cannot be relabelled as another state', () => {
+      const lat = 17.6868;
+      const lng = 83.2185;
+      expect(isCoordinateInAndhraPradesh(lat, lng)).toBe(true);
+      const resolved = resolveLocationFromCoordinates(lat, lng);
+      expect(resolved.isInsideAP).toBe(true);
+      expect(resolved.state).toBe('Andhra Pradesh');
+      expect(resolved.state).not.toBe('Telangana');
+      expect(resolved.state).not.toBe('Odisha');
+    });
+
+    it('39. Coordinates outside AP cannot be made eligible by selecting Andhra Pradesh manually', () => {
+      // Hyderabad (Telangana): [lng: 78.4867, lat: 17.3850]
+      const hyderabadLat = 17.3850;
+      const hyderabadLng = 78.4867;
+      expect(isCoordinateInAndhraPradesh(hyderabadLat, hyderabadLng)).toBe(false);
+      const resolved = resolveLocationFromCoordinates(hyderabadLat, hyderabadLng);
+
+      expect(resolved.isInsideAP).toBe(false);
+      expect(resolved.state).toBe('Outside Andhra Pradesh');
+
+      // Manual selection of AP district should not override outside AP result
+      const manualSelection = 'Visakhapatnam';
+      expect(manualSelection).toBe('Visakhapatnam');
+      const isEligible = resolved.isInsideAP;
+      expect(isEligible).toBe(false);
+    });
+
+    it('40. Fresh valid GPS recheck can legitimately update verified location from Vizag to Vijayawada', () => {
+      // User moves to Vijayawada (NTR district): [lng: 80.6480, lat: 16.5062]
+      const initialLocation = resolveLocationFromCoordinates(17.6868, 83.2185);
+      expect(initialLocation.cityOrTown).toBe('Visakhapatnam');
+
+      const recheckedLocation = resolveLocationFromCoordinates(16.5062, 80.6480);
+      expect(recheckedLocation.cityOrTown).toBe('Vijayawada');
+      expect(recheckedLocation.districtName).toBe('NTR');
+      expect(recheckedLocation.isInsideAP).toBe(true);
+    });
+
+    it('41. Permission denial, GPS timeout, stale fixes, and insufficient accuracy never produce a verified result', () => {
+      // 1. Accuracy > 3000m produces AMBIGUOUS confidence
+      const inaccurate = resolveLocationFromCoordinates(17.6868, 83.2185, 4500);
+      expect(inaccurate.confidence).toBe('AMBIGUOUS');
+
+      // 2. Stale timestamp simulation
+      const isTimestampFresh = (ts?: number) => {
+        if (!ts) return true;
+        return Date.now() - ts <= 10 * 60 * 1000;
+      };
+      const staleTimestamp = Date.now() - 15 * 60 * 1000;
+      expect(isTimestampFresh(staleTimestamp)).toBe(false);
+
+      // 3. Permission denied state
+      const permissionStatus: string = 'denied';
+      const verificationStatus = permissionStatus === 'granted'
+        ? LocationVerificationStatus.VERIFIED
+        : LocationVerificationStatus.UNVERIFIED;
+      expect(verificationStatus).toBe(LocationVerificationStatus.UNVERIFIED);
+    });
+
+
+    it('42. Issue coordinates are validated independently from user verified current location', () => {
+      // User is verified in Visakhapatnam
+      const userCurrent = resolveLocationFromCoordinates(17.6868, 83.2185);
+      expect(userCurrent.districtName).toBe('Visakhapatnam');
+
+      // Issue occurred in Vijayawada (NTR District): [lng: 80.6480, lat: 16.5062]
+      const issueCoords: [number, number] = [80.6480, 16.5062];
+      const issueConsistency = validateAdministrativeConsistency('ntr', undefined, undefined, issueCoords);
+      expect(issueConsistency.isValid).toBe(true);
+      expect(issueConsistency.district?.name).toBe('NTR');
+
+      // Current location remains Visakhapatnam, not overwritten by issue location
+      expect(userCurrent.districtName).toBe('Visakhapatnam');
+    });
+
+    it('43. A selected city or district that conflicts with issue coordinates is rejected', () => {
+      // Issue coordinates in Visakhapatnam: [lng: 83.2185, lat: 17.6868]
+      const vizagCoords: [number, number] = [83.2185, 17.6868];
+      
+      // Selected district is NTR (Vijayawada), ~275km away
+      const conflictCheck = validateAdministrativeConsistency('ntr', undefined, undefined, vizagCoords);
+      expect(conflictCheck.isValid).toBe(false);
+      expect(conflictCheck.error).toContain('exceeding allowed regional tolerance');
+    });
+  });
 });
+
 

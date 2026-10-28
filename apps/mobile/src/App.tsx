@@ -10,19 +10,21 @@ import { ProfileScreen } from './screens/ProfileScreen';
 import { AuthorityScreen } from './screens/AuthorityScreen';
 import { RepresentativesDirectoryScreen } from './screens/RepresentativesDirectoryScreen';
 import { RepresentativeProfileScreen } from './screens/RepresentativeProfileScreen';
+import { MyReportsScreen } from './screens/MyReportsScreen';
 import { ReportCategory, ReportStatus } from '@civic-pulse/contracts';
 import { MapRegion } from './utils/map-utils';
 import { colors } from './theme/tokens';
 
 type ScreenState =
   | { name: 'HOME' }
+  | { name: 'MY_REPORTS' }
   | { name: 'CREATE_REPORT' }
-  | { name: 'REPORT_DETAIL'; reportId: string }
+  | { name: 'REPORT_DETAIL'; reportId: string; returnRepresentativeId?: string }
   | { name: 'NOTIFICATIONS' }
   | { name: 'PROFILE' }
   | { name: 'AUTHORITY' }
   | { name: 'REPRESENTATIVES_DIRECTORY' }
-  | { name: 'REPRESENTATIVE_PROFILE'; representativeId: string };
+  | { name: 'REPRESENTATIVE_PROFILE'; representativeId: string; returnReportId?: string };
 
 const MainNavigator: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -71,6 +73,18 @@ const MainNavigator: React.FC = () => {
   };
 
   switch (currentScreen.name) {
+    case 'MY_REPORTS':
+      return (
+        <MyReportsScreen
+          onBack={() => setCurrentScreen({ name: 'HOME' })}
+          onSelectReport={(reportId) =>
+            setCurrentScreen({ name: 'REPORT_DETAIL', reportId })
+          }
+          onCreateReport={() => setCurrentScreen({ name: 'CREATE_REPORT' })}
+          onNavigateToLocation={handleNavigateToReportLocation}
+        />
+      );
+
     case 'CREATE_REPORT':
       return (
         <CreateReportScreen
@@ -87,10 +101,24 @@ const MainNavigator: React.FC = () => {
         <ReportDetailScreen
           reportId={currentScreen.reportId}
           onBack={() => {
-            setHomeRefreshTrigger((prev) => prev + 1);
-            setCurrentScreen({ name: 'HOME' });
+            if (currentScreen.returnRepresentativeId) {
+              setCurrentScreen({
+                name: 'REPRESENTATIVE_PROFILE',
+                representativeId: currentScreen.returnRepresentativeId,
+              });
+            } else {
+              setHomeRefreshTrigger((prev) => prev + 1);
+              setCurrentScreen({ name: 'HOME' });
+            }
           }}
           onNavigateToLocation={handleNavigateToReportLocation}
+          onSelectRepresentative={(repId) => {
+            setCurrentScreen({
+              name: 'REPRESENTATIVE_PROFILE',
+              representativeId: repId,
+              returnReportId: currentScreen.reportId,
+            });
+          }}
         />
       );
 
@@ -129,9 +157,22 @@ const MainNavigator: React.FC = () => {
       return (
         <RepresentativeProfileScreen
           representativeId={currentScreen.representativeId}
-          onBack={() => setCurrentScreen({ name: 'REPRESENTATIVES_DIRECTORY' })}
+          onBack={() => {
+            if (currentScreen.returnReportId) {
+              setCurrentScreen({
+                name: 'REPORT_DETAIL',
+                reportId: currentScreen.returnReportId,
+              });
+            } else {
+              setCurrentScreen({ name: 'REPRESENTATIVES_DIRECTORY' });
+            }
+          }}
           onSelectReport={(reportId) =>
-            setCurrentScreen({ name: 'REPORT_DETAIL', reportId })
+            setCurrentScreen({
+              name: 'REPORT_DETAIL',
+              reportId,
+              returnRepresentativeId: currentScreen.representativeId,
+            })
           }
         />
       );
@@ -144,6 +185,7 @@ const MainNavigator: React.FC = () => {
             setCurrentScreen({ name: 'REPORT_DETAIL', reportId })
           }
           onCreateReport={() => setCurrentScreen({ name: 'CREATE_REPORT' })}
+          onOpenMyReports={() => setCurrentScreen({ name: 'MY_REPORTS' })}
           onOpenNotifications={() => setCurrentScreen({ name: 'NOTIFICATIONS' })}
           onOpenProfile={() => setCurrentScreen({ name: 'PROFILE' })}
           onOpenAuthorityWorkflows={() => setCurrentScreen({ name: 'AUTHORITY' })}

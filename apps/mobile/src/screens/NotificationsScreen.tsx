@@ -6,11 +6,11 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
-  ActivityIndicator,
 } from 'react-native';
 import { NotificationDto } from '@civic-pulse/contracts';
 import { apiClient } from '../api/api-client';
 import { EmptyState, ErrorState } from '../components/FeedbackStates';
+import { SkeletonNotificationRow, ShimmerSkeleton } from '../components/ShimmerSkeleton';
 import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface NotificationsScreenProps {
@@ -177,9 +177,12 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({
       </View>
 
       {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Fetching your updates...</Text>
+        <View style={styles.skeletonContainer}>
+          <SkeletonNotificationRow />
+          <SkeletonNotificationRow />
+          <SkeletonNotificationRow />
+          <SkeletonNotificationRow />
+          <SkeletonNotificationRow />
         </View>
       ) : error ? (
         <ErrorState
@@ -201,8 +204,7 @@ export const NotificationsScreen: React.FC<NotificationsScreenProps> = ({
           ListFooterComponent={
             isFetchingMore ? (
               <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.footerLoaderText}>Loading more updates...</Text>
+                <ShimmerSkeleton width="80%" height={16} borderRadius={radii.xs} />
               </View>
             ) : paginationError ? (
               <TouchableOpacity
@@ -243,10 +245,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.cardBackground,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: colors.borderSubtle,
   },
   backButton: {
     paddingVertical: spacing.xs,
@@ -254,7 +257,7 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: colors.primary,
     fontSize: typography.sizes.md,
-    fontWeight: typography.weights.medium,
+    fontWeight: typography.weights.semibold,
   },
   navTitle: {
     fontSize: typography.sizes.lg,
@@ -271,16 +274,23 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.hero,
   },
   notificationCard: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
     padding: spacing.md,
     marginBottom: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   notificationCardUnread: {
-    backgroundColor: colors.infoBackground,
-    borderColor: colors.primaryLight,
+    backgroundColor: colors.primaryLight,
+    borderColor: '#D4E2FC',
+    borderLeftWidth: 3.5,
+    borderLeftColor: colors.primary,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -318,13 +328,17 @@ const styles = StyleSheet.create({
   },
   viewActionText: {
     fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.semibold,
+    fontWeight: typography.weights.bold,
     color: colors.primary,
   },
   loadingContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  skeletonContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
   },
   loadingText: {
     marginTop: spacing.md,
@@ -349,14 +363,14 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
     marginVertical: spacing.sm,
-    backgroundColor: '#FFFBEB',
+    backgroundColor: colors.warningBackground,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderColor: colors.warningBorder,
   },
   footerRetryText: {
     fontSize: typography.sizes.sm,
-    color: '#B45309',
+    color: colors.warning,
     fontWeight: '600',
   },
   endOfFeedContainer: {

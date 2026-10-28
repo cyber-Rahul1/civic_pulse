@@ -5,18 +5,20 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
-  TextInput,
   RefreshControl,
   ScrollView,
+  Image,
 } from 'react-native';
 import { apiClient } from '../api/api-client';
 import {
   RepresentativeProfileDto,
   RepresentativeOfficeType,
 } from '@civic-pulse/contracts';
-import { colors, typography, spacing } from '../theme/tokens';
+import { colors, typography, spacing, radii, shadows } from '../theme/tokens';
 import { ErrorState, EmptyState } from '../components/FeedbackStates';
+import { SkeletonRepresentativeCard, ShimmerSkeleton } from '../components/ShimmerSkeleton';
+import { Input } from '../components/Input';
+import { useDebounce } from '../hooks/useDebounce';
 
 interface RepresentativesDirectoryScreenProps {
   onBack: () => void;
@@ -39,9 +41,11 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [imageErrorMap, setImageErrorMap] = useState<Record<string, boolean>>({});
 
   // Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const debouncedSearch = useDebounce(searchQuery, 300);
   const [selectedOfficeType, setSelectedOfficeType] = useState<string | undefined>(undefined);
   const [page, setPage] = useState<number>(1);
   const [hasMore, setHasMore] = useState<boolean>(false);
@@ -58,7 +62,7 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
 
       try {
         const res = await apiClient.listRepresentatives({
-          search: searchQuery.trim() || undefined,
+          search: debouncedSearch.trim() || undefined,
           officeType: selectedOfficeType,
           termStatus: 'CURRENT',
           page: targetPage,
@@ -89,12 +93,12 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
         setIsFetchingMore(false);
       }
     },
-    [page, searchQuery, selectedOfficeType],
+    [page, debouncedSearch, selectedOfficeType],
   );
 
   useEffect(() => {
     fetchRepresentatives(true);
-  }, [searchQuery, selectedOfficeType]);
+  }, [debouncedSearch, selectedOfficeType]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -111,18 +115,27 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
     return (
       <TouchableOpacity
         style={styles.card}
-        activeOpacity={0.8}
+        activeOpacity={0.84}
         onPress={() => onSelectRepresentative(item.id)}
         accessibilityRole="button"
         accessibilityLabel={`View public profile of ${item.publicName}, ${item.officialDesignation}`}
       >
         <View style={styles.cardHeaderRow}>
-          {/* Neutral Avatar Placeholder */}
-          <View style={styles.avatarPlaceholder}>
-            <Text style={styles.avatarText}>
-              {item.publicName.substring(0, 2).toUpperCase()}
-            </Text>
-          </View>
+          {/* Portrait Image or Neutral Avatar Fallback */}
+          {item.photoUrl && !imageErrorMap[item.id] ? (
+            <Image
+              source={{ uri: item.photoUrl }}
+              style={styles.avatarImage}
+              resizeMode="cover"
+              onError={() => setImageErrorMap((prev) => ({ ...prev, [item.id]: true }))}
+            />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Text style={styles.avatarText}>
+                {item.publicName.substring(0, 2).toUpperCase()}
+              </Text>
+            </View>
+          )}
 
           <View style={styles.cardInfo}>
             <View style={styles.nameRow}>
@@ -179,15 +192,21 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
         <View style={{ width: 48 }} />
       </View>
 
-      {/* Search Input */}
+      {/* Modern Debounced Search Input */}
       <View style={styles.searchContainer}>
-        <TextInput
-          style={styles.searchInput}
+        <Input
           placeholder="Search representative, constituency, or party..."
-          placeholderTextColor={colors.textSecondary}
           value={searchQuery}
           onChangeText={setSearchQuery}
-          clearButtonMode="while-editing"
+          leftIcon={<Text style={styles.searchIcon}>🔍</Text>}
+          rightElement={
+            searchQuery.length > 0 ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={styles.clearText}>✕</Text>
+              </TouchableOpacity>
+            ) : null
+          }
+          containerStyle={{ marginBottom: 0 }}
           accessibilityLabel="Search public representatives"
         />
       </View>
@@ -202,6 +221,7 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
                 key={tab.label}
                 style={[styles.tabButton, isSelected && styles.tabButtonActive]}
                 onPress={() => setSelectedOfficeType(tab.value)}
+                activeOpacity={0.8}
               >
                 <Text style={[styles.tabText, isSelected && styles.tabTextActive]}>
                   {tab.label}
@@ -219,11 +239,13 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
         </Text>
       </View>
 
-      {/* Main List */}
+      {/* Main List with Shimmer Skeleton Loading */}
       {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading verified representative records...</Text>
+        <View style={styles.skeletonWrapper}>
+          <SkeletonRepresentativeCard />
+          <SkeletonRepresentativeCard />
+          <SkeletonRepresentativeCard />
+          <SkeletonRepresentativeCard />
         </View>
       ) : error ? (
         <ErrorState
@@ -259,7 +281,7 @@ export const RepresentativesDirectoryScreen: React.FC<RepresentativesDirectorySc
           ListFooterComponent={
             isFetchingMore ? (
               <View style={styles.moreLoader}>
-                <ActivityIndicator size="small" color={colors.primary} />
+                <ShimmerSkeleton width="80%" height={16} borderRadius={radii.xs} />
               </View>
             ) : null
           }
@@ -278,20 +300,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.cardBackground,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm + 2,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   backButton: {
     paddingVertical: spacing.xs,
-    paddingRight: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
   backText: {
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.semibold,
     color: colors.primary,
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.medium,
   },
   navTitle: {
     fontSize: typography.sizes.lg,
@@ -299,39 +322,42 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   searchContainer: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.cardBackground,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+    backgroundColor: colors.surface,
   },
-  searchInput: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 8,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 10,
-    fontSize: typography.sizes.sm,
-    color: colors.textPrimary,
+  searchIcon: {
+    fontSize: 15,
+    color: colors.textSecondary,
+  },
+  clearText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    paddingHorizontal: spacing.xs,
+  },
+  tabsWrapper: {
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: spacing.sm,
+  },
+  tabsContent: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+  },
+  tabButton: {
+    paddingHorizontal: spacing.md + 2,
+    paddingVertical: 7,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  tabsWrapper: {
-    backgroundColor: colors.cardBackground,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingBottom: spacing.xs,
-  },
-  tabsContent: {
-    paddingHorizontal: spacing.md,
-    gap: spacing.xs,
-  },
-  tabButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: '#F1F5F9',
-    marginRight: 6,
-  },
   tabButtonActive: {
     backgroundColor: colors.primary,
+    borderColor: '#2648A5',
+    ...shadows.subtle,
   },
   tabText: {
     fontSize: typography.sizes.xs,
@@ -339,112 +365,117 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   tabTextActive: {
-    color: '#FFFFFF',
+    color: colors.textInverse,
     fontWeight: typography.weights.bold,
   },
   coverageBanner: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.xs,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
     marginBottom: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    backgroundColor: '#EFF6FF',
-    borderRadius: 8,
+    padding: spacing.sm + 2,
+    borderRadius: radii.md,
+    backgroundColor: colors.primarySubtle,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: '#D3DCF3',
   },
   coverageBannerText: {
-    fontSize: 10,
-    color: '#1E40AF',
-    lineHeight: 14,
+    fontSize: typography.sizes.xs - 1,
+    color: colors.primaryDark,
+    lineHeight: 18,
   },
   coverageBold: {
     fontWeight: typography.weights.bold,
   },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xl,
-  },
-  loadingText: {
-    marginTop: spacing.sm,
-    color: colors.textSecondary,
-    fontSize: typography.sizes.sm,
-  },
   listContent: {
-    padding: spacing.md,
-    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.hero,
+  },
+  skeletonWrapper: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
   },
   card: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    padding: spacing.md + 2,
+    marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
+    ...shadows.card,
   },
   cardHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+  avatarImage: {
+    width: 60,
+    height: 60,
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+  },
   avatarPlaceholder: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#E2E8F0',
+    width: 60,
+    height: 60,
+    borderRadius: radii.pill,
+    backgroundColor: colors.primarySubtle,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.sm,
+    borderWidth: 1.5,
+    borderColor: colors.primaryLight,
   },
   avatarText: {
-    color: colors.primary,
-    fontSize: typography.sizes.md,
+    fontSize: 20,
     fontWeight: typography.weights.bold,
+    color: colors.primary,
   },
   cardInfo: {
     flex: 1,
+    marginLeft: spacing.md,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: spacing.xs,
   },
   repName: {
     fontSize: typography.sizes.md,
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
-    flexShrink: 1,
+    flex: 1,
   },
   verifiedCheck: {
-    fontSize: 10,
+    fontSize: typography.sizes.xxs,
     fontWeight: typography.weights.bold,
-    color: '#15803D',
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
+    color: colors.success,
+    backgroundColor: colors.successLight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.xs,
   },
   flaggedCheck: {
-    fontSize: 10,
+    fontSize: typography.sizes.xxs,
     fontWeight: typography.weights.bold,
-    color: '#9A3412',
-    backgroundColor: '#FFEDD5',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
+    color: colors.warning,
+    backgroundColor: colors.warningLight,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.xs,
   },
   publicRecordCheck: {
-    fontSize: 10,
+    fontSize: typography.sizes.xxs,
     fontWeight: typography.weights.medium,
-    color: '#475569',
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 4,
+    color: colors.textMuted,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.xs,
   },
   repDesignation: {
-    fontSize: typography.sizes.xs,
+    fontSize: typography.sizes.sm,
     color: colors.textSecondary,
     marginTop: 2,
     fontWeight: typography.weights.medium,
@@ -453,55 +484,55 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 4,
-    gap: 3,
   },
   jurisdictionIcon: {
-    fontSize: 12,
+    fontSize: 11,
+    marginRight: 3,
   },
   jurisdictionText: {
     fontSize: typography.sizes.xs,
-    color: colors.textPrimary,
-    flexShrink: 1,
+    color: colors.textMuted,
   },
   cardFooter: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: spacing.sm,
-    paddingTop: spacing.xs,
+    justifyContent: 'space-between',
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+    borderTopColor: colors.borderSubtle,
   },
   partyBadge: {
-    backgroundColor: '#EEF2FF',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-    marginRight: spacing.xs,
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radii.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   partyText: {
-    fontSize: 11,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
+    fontSize: typography.sizes.xxs,
+    fontWeight: typography.weights.semibold,
+    color: colors.textSecondary,
   },
   termBadge: {
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
+    backgroundColor: colors.successLight,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radii.xs,
   },
   termBadgeFormer: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: colors.surfaceMuted,
   },
   termText: {
-    fontSize: 11,
-    fontWeight: typography.weights.medium,
-    color: '#15803D',
+    fontSize: typography.sizes.xxs,
+    fontWeight: typography.weights.semibold,
+    color: colors.success,
   },
   termTextFormer: {
-    color: '#64748B',
+    color: colors.textMuted,
   },
   viewProfileLink: {
-    marginLeft: 'auto',
     fontSize: typography.sizes.xs,
     fontWeight: typography.weights.bold,
     color: colors.primary,
@@ -509,5 +540,6 @@ const styles = StyleSheet.create({
   moreLoader: {
     paddingVertical: spacing.md,
     alignItems: 'center',
+    justifyContent: 'center',
   },
 });

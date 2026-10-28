@@ -6,22 +6,23 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
-  ActivityIndicator,
   Image,
 } from 'react-native';
 import { ReportDto, ReportCategory, ReportStatus } from '@civic-pulse/contracts';
 import { apiClient } from '../api/api-client';
 import { useAuth } from '../context/auth-context';
 import { StatusBadge } from '../components/StatusBadge';
-import { Button } from '../components/Button';
 import { EmptyState, ErrorState } from '../components/FeedbackStates';
 import { CommunityMap } from '../components/CommunityMap';
+import { SkeletonReportCard, ShimmerSkeleton } from '../components/ShimmerSkeleton';
+import { Input } from '../components/Input';
 import { MapRegion } from '../utils/map-utils';
 import { colors, radii, shadows, spacing, typography } from '../theme/tokens';
 
 interface HomeScreenProps {
   onSelectReport: (reportId: string) => void;
   onCreateReport: () => void;
+  onOpenMyReports?: () => void;
   onOpenNotifications: () => void;
   onOpenProfile: () => void;
   onOpenAuthorityWorkflows?: () => void;
@@ -42,6 +43,7 @@ interface HomeScreenProps {
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSelectReport,
   onCreateReport,
+  onOpenMyReports,
   onOpenNotifications,
   onOpenProfile,
   onOpenAuthorityWorkflows,
@@ -69,6 +71,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const [reports, setReports] = useState<ReportDto[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [internalCategory, setInternalCategory] = useState<ReportCategory | undefined>(undefined);
   const [internalStatus, setInternalStatus] = useState<ReportStatus | undefined>(undefined);
 
@@ -166,59 +170,161 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     fetchHomeData(false);
   };
 
-  const categories: Array<{ label: string; value: ReportCategory | undefined }> = [
-    { label: 'All Categories', value: undefined },
-    { label: 'Pothole', value: ReportCategory.POTHOLE },
-    { label: 'Streetlight', value: ReportCategory.STREETLIGHT },
-    { label: 'Garbage', value: ReportCategory.GARBAGE },
-    { label: 'Water', value: ReportCategory.WATER },
-    { label: 'Drainage', value: ReportCategory.DRAINAGE },
-    { label: 'Safety', value: ReportCategory.PUBLIC_SAFETY },
+  const categories: Array<{ label: string; value: ReportCategory | undefined; icon: string }> = [
+    { label: 'Garbage', value: ReportCategory.GARBAGE, icon: '🗑️' },
+    { label: 'Streetlight', value: ReportCategory.STREETLIGHT, icon: '💡' },
+    { label: 'Water', value: ReportCategory.WATER, icon: '🚰' },
+    { label: 'Drainage', value: ReportCategory.DRAINAGE, icon: '🌊' },
+    { label: 'Pothole', value: ReportCategory.POTHOLE, icon: '🕳️' },
+    { label: 'Safety', value: ReportCategory.PUBLIC_SAFETY, icon: '🛡️' },
   ];
 
   const statuses: Array<{ label: string; value: ReportStatus | undefined }> = [
-    { label: 'All Statuses', value: undefined },
+    { label: 'All', value: undefined },
     { label: 'Submitted', value: ReportStatus.SUBMITTED },
     { label: 'Under Review', value: ReportStatus.UNDER_REVIEW },
     { label: 'In Progress', value: ReportStatus.IN_PROGRESS },
     { label: 'Resolved', value: ReportStatus.RESOLVED },
   ];
 
+  const getCategoryTheme = (cat: string) => {
+    switch (String(cat).toUpperCase()) {
+      case 'GARBAGE':
+        return {
+          textColor: '#2563EB',
+          iconColor: '#2563EB',
+          bgColor: '#EFF6FF',
+          borderColor: '#BFDBFE',
+          icon: '🗑️',
+        };
+      case 'DRAINAGE':
+        return {
+          textColor: '#0D9488',
+          iconColor: '#0D9488',
+          bgColor: '#F0FDFA',
+          borderColor: '#99F6E4',
+          icon: '🌊',
+        };
+      case 'STREETLIGHT':
+        return {
+          textColor: '#D97706',
+          iconColor: '#059669',
+          bgColor: '#ECFDF5',
+          borderColor: '#A7F3D0',
+          icon: '💡',
+        };
+      case 'WATER':
+        return {
+          textColor: '#2563EB',
+          iconColor: '#2563EB',
+          bgColor: '#EFF6FF',
+          borderColor: '#BFDBFE',
+          icon: '🚰',
+        };
+      case 'POTHOLE':
+        return {
+          textColor: '#B45309',
+          iconColor: '#B45309',
+          bgColor: '#FEF3C7',
+          borderColor: '#FCD34D',
+          icon: '🕳️',
+        };
+      default:
+        return {
+          textColor: '#334155',
+          iconColor: '#334155',
+          bgColor: '#F1F5F9',
+          borderColor: '#CBD5E1',
+          icon: '📋',
+        };
+    }
+  };
+
+  const formatReportDate = (isoString: string) => {
+    try {
+      const d = new Date(isoString);
+      const now = new Date();
+      const isRecent = now.getTime() - d.getTime() < 7 * 24 * 3600 * 1000;
+      const month = d.toLocaleDateString('en-US', { month: 'short' });
+      const day = d.getDate();
+      if (isRecent) {
+        const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        return `${month} ${day} • ${time}`;
+      } else {
+        const year = d.getFullYear();
+        return `${month} ${day}, ${year}`;
+      }
+    } catch {
+      return 'Recent';
+    }
+  };
+
+  // Filter reports by debounced search query
+  const query = debouncedSearch.trim().toLowerCase();
+  const displayedReports = query
+    ? reports.filter(
+        (r) =>
+          r.title.toLowerCase().includes(query) ||
+          (r.description && r.description.toLowerCase().includes(query)) ||
+          (r.locationDescription && r.locationDescription.toLowerCase().includes(query)),
+      )
+    : reports;
+
   const renderReportItem = ({ item }: { item: ReportDto }) => {
     const primaryMedia = item.media && item.media.length > 0 ? item.media[0] : null;
     const thumbnailUri = primaryMedia ? primaryMedia.secureUrl || primaryMedia.url : null;
+    const catTheme = getCategoryTheme(item.category);
 
     return (
       <TouchableOpacity
         style={styles.reportCard}
         onPress={() => onSelectReport(item.id)}
-        activeOpacity={0.7}
+        activeOpacity={0.85}
         accessibilityRole="button"
         accessibilityLabel={`Report: ${item.title}`}
       >
-        <View style={styles.cardHeader}>
-          <Text style={styles.cardCategory}>{item.category}</Text>
+        {/* Top Row: Category Label & Status Badge */}
+        <View style={styles.cardTopRow}>
+          <Text style={[styles.cardCategoryLabel, { color: catTheme.textColor }]}>
+            {String(item.category).toUpperCase()}
+          </Text>
           <StatusBadge status={item.status} />
         </View>
 
-        <View style={styles.cardBodyRow}>
+        {/* Middle Content Row: Title + Description + Rounded Icon Tile */}
+        <View style={styles.cardMainContent}>
           <View style={styles.cardTextContent}>
             <Text style={styles.cardTitle} numberOfLines={2}>
               {item.title}
             </Text>
-            <Text style={styles.cardDescription} numberOfLines={2}>
-              {item.description}
-            </Text>
+            {item.description ? (
+              <Text style={styles.cardDescription} numberOfLines={2}>
+                {item.description}
+              </Text>
+            ) : null}
           </View>
-          {thumbnailUri && (
+
+          {thumbnailUri ? (
             <Image
               source={{ uri: thumbnailUri }}
               style={styles.cardThumbnail}
               resizeMode="cover"
             />
+          ) : (
+            <View
+              style={[
+                styles.cardCategoryTile,
+                { backgroundColor: catTheme.bgColor, borderColor: catTheme.borderColor },
+              ]}
+            >
+              <Text style={styles.cardCategoryTileIcon}>
+                {catTheme.icon}
+              </Text>
+            </View>
           )}
         </View>
 
+        {/* Footer Row: Red Pin Location + Date */}
         <View style={styles.cardFooter}>
           <TouchableOpacity
             style={styles.cardLocationButton}
@@ -234,15 +340,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             }}
             activeOpacity={item.location?.coordinates ? 0.7 : 1}
             accessibilityRole={item.location?.coordinates ? 'button' : undefined}
-            accessibilityLabel={`Location: ${item.locationDescription || 'Public Jurisdiction'}`}
+            accessibilityLabel={`Location: ${item.locationDescription || 'Andhra Pradesh'}`}
           >
-            <Text style={[styles.cardLocation, item.location?.coordinates && styles.cardLocationInteractive]} numberOfLines={1}>
-              📍 {item.locationDescription || 'Public Jurisdiction'}
-              {item.location?.coordinates && ' (View on Map)'}
-            </Text>
+            <View style={styles.cardLocationRow}>
+              <Text style={styles.cardPinIcon}>📍</Text>
+              <Text style={styles.cardLocationText} numberOfLines={1}>
+                {item.locationDescription || 'Andhra Pradesh'}
+              </Text>
+            </View>
           </TouchableOpacity>
+
           <Text style={styles.cardDate}>
-            {new Date(item.createdAt).toLocaleDateString()}
+            {formatReportDate(item.createdAt)}
           </Text>
         </View>
       </TouchableOpacity>
@@ -251,38 +360,40 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   return (
     <View style={styles.container}>
-      {/* App Bar / Header */}
+      {/* Top Header */}
       <View style={styles.appBar}>
-        <View>
-          <Text style={styles.greeting}>CivicPulse</Text>
-          <Text style={styles.userGreeting}>
-            Hello, {user?.displayName || 'Resident'}
+        <View style={styles.brandContainer}>
+          <View style={styles.brandTitleRow}>
+            <Text style={styles.brandTitle}>CivicPulse</Text>
+            <View style={styles.brandDot} />
+            <View style={styles.stateBadge}>
+              <Text style={styles.stateBadgeText}>AP OFFICIAL</Text>
+            </View>
+          </View>
+          <Text style={styles.brandSubtitle}>
+            Andhra Pradesh Citizen Voice &{'\n'}Accountability
           </Text>
         </View>
 
         <View style={styles.appBarActions}>
           <TouchableOpacity
-            style={styles.iconButton}
+            style={styles.actionIconBtn}
             onPress={onOpenRepresentatives}
             accessibilityRole="button"
             accessibilityLabel="Public Representatives Directory"
           >
-            <Text style={styles.iconButtonText}>🏛️</Text>
+            <Text style={styles.actionIconText}>🏛️</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.iconButton}
+            style={styles.actionIconBtn}
             onPress={onOpenNotifications}
             accessibilityRole="button"
             accessibilityLabel="Notifications"
           >
-            <Text style={styles.iconButtonText}>🔔</Text>
+            <Text style={styles.actionIconText}>🔔</Text>
             {unreadNotifications > 0 && (
-              <View style={styles.notificationBadge}>
-                <Text style={styles.notificationBadgeText}>
-                  {unreadNotifications > 99 ? '99+' : unreadNotifications}
-                </Text>
-              </View>
+              <View style={styles.notificationDot} />
             )}
           </TouchableOpacity>
 
@@ -293,7 +404,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             accessibilityLabel="Profile & Settings"
           >
             <Text style={styles.avatarText}>
-              {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'U'}
+              {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'D'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -304,6 +415,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <TouchableOpacity
           style={styles.authorityBanner}
           onPress={onOpenAuthorityWorkflows}
+          activeOpacity={0.85}
         >
           <Text style={styles.authorityBannerIcon}>🏛️</Text>
           <View style={styles.authorityBannerContent}>
@@ -312,10 +424,38 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               Tap to view and manage assigned civic reports
             </Text>
           </View>
+          <Text style={styles.authorityBannerArrow}>→</Text>
         </TouchableOpacity>
       )}
 
-      {/* Segmented View Switcher: Feed vs Map */}
+      {/* High-Contrast Search Bar */}
+      <View style={styles.searchSection}>
+        <Input
+          placeholder="Search reports, locations or issues..."
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          onDebouncedChange={(val) => setDebouncedSearch(val)}
+          debounceDelay={250}
+          containerStyle={styles.searchInputContainer}
+          style={styles.searchCustomInput}
+          leftIcon={<Text style={styles.searchIcon}>🔍</Text>}
+          rightElement={
+            searchQuery.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setSearchQuery('');
+                  setDebouncedSearch('');
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.clearSearchText}>✕</Text>
+              </TouchableOpacity>
+            ) : null
+          }
+        />
+      </View>
+
+      {/* Segmented View Switcher: Reports Feed vs Community Map */}
       <View style={styles.segmentContainer}>
         <View style={styles.segmentWrapper}>
           <TouchableOpacity
@@ -324,19 +464,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               activeTab === 'feed' && styles.segmentTabActive,
             ]}
             onPress={() => handleSelectTab('feed')}
-            activeOpacity={0.8}
+            activeOpacity={0.85}
             accessibilityRole="tab"
             accessibilityState={{ selected: activeTab === 'feed' }}
             accessibilityLabel="Feed view"
           >
-            <Text
-              style={[
-                styles.segmentTabText,
-                activeTab === 'feed' && styles.segmentTabTextActive,
-              ]}
-            >
-              📋 Feed
-            </Text>
+            <View style={styles.segmentTabInner}>
+              <Text style={styles.segmentTabIcon}>📋</Text>
+              <Text
+                style={[
+                  styles.segmentTabText,
+                  activeTab === 'feed' && styles.segmentTabTextActive,
+                ]}
+              >
+                Reports Feed
+              </Text>
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -345,46 +488,50 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               activeTab === 'map' && styles.segmentTabActive,
             ]}
             onPress={() => handleSelectTab('map')}
-            activeOpacity={0.8}
+            activeOpacity={0.85}
             accessibilityRole="tab"
             accessibilityState={{ selected: activeTab === 'map' }}
             accessibilityLabel="Map view"
           >
-            <Text
-              style={[
-                styles.segmentTabText,
-                activeTab === 'map' && styles.segmentTabTextActive,
-              ]}
-            >
-              🗺️ Community Map
-            </Text>
+            <View style={styles.segmentTabInner}>
+              <Text style={styles.segmentTabIcon}>🗺️</Text>
+              <Text
+                style={[
+                  styles.segmentTabText,
+                  activeTab === 'map' && styles.segmentTabTextActive,
+                ]}
+              >
+                Community Map
+              </Text>
+            </View>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Filters: Category & Status */}
+      {/* Category Horizontal Filter Pills */}
       <View style={styles.filterSection}>
-        {/* Category Carousel */}
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
           data={categories}
           keyExtractor={(item) => item.label}
-          contentContainerStyle={styles.filterList}
+          contentContainerStyle={styles.categoryList}
           renderItem={({ item }) => {
             const isSelected = selectedCategory === item.value;
             return (
               <TouchableOpacity
                 style={[
-                  styles.filterChip,
-                  isSelected && styles.filterChipSelected,
+                  styles.categoryPill,
+                  isSelected && styles.categoryPillSelected,
                 ]}
-                onPress={() => handleSelectCategory(item.value)}
+                onPress={() => handleSelectCategory(isSelected ? undefined : item.value)}
+                activeOpacity={0.8}
               >
+                <Text style={styles.categoryPillIcon}>{item.icon}</Text>
                 <Text
                   style={[
-                    styles.filterChipText,
-                    isSelected && styles.filterChipTextSelected,
+                    styles.categoryPillText,
+                    isSelected && styles.categoryPillTextSelected,
                   ]}
                 >
                   {item.label}
@@ -394,35 +541,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           }}
         />
 
-        {/* Status Carousel */}
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={statuses}
-          keyExtractor={(item) => item.label}
-          contentContainerStyle={[styles.filterList, styles.statusFilterList]}
-          renderItem={({ item }) => {
+        {/* Status Text/Button Filter Row */}
+        <View style={styles.statusRow}>
+          {statuses.map((item) => {
             const isSelected = selectedStatus === item.value;
+            if (isSelected) {
+              return (
+                <TouchableOpacity
+                  key={item.label}
+                  style={styles.statusSelectedButton}
+                  onPress={() => handleSelectStatus(undefined)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.statusSelectedButtonText}>{item.label}</Text>
+                </TouchableOpacity>
+              );
+            }
             return (
               <TouchableOpacity
-                style={[
-                  styles.statusChip,
-                  isSelected && styles.statusChipSelected,
-                ]}
+                key={item.label}
+                style={styles.statusNormalButton}
                 onPress={() => handleSelectStatus(item.value)}
+                activeOpacity={0.7}
               >
-                <Text
-                  style={[
-                    styles.statusChipText,
-                    isSelected && styles.statusChipTextSelected,
-                  ]}
-                >
-                  {item.label}
-                </Text>
+                <Text style={styles.statusNormalText}>{item.label}</Text>
               </TouchableOpacity>
             );
-          }}
-        />
+          })}
+        </View>
       </View>
 
       {/* Main View: Map or Feed */}
@@ -437,34 +583,67 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onRegionChangeComplete={onMapRegionChange}
             focusReportId={focusReportId}
           />
-          {/* Floating Report An Issue Button in Map View */}
+          {/* Floating Report An Issue Action in Map View */}
           <TouchableOpacity
             style={styles.floatingReportButton}
             onPress={onCreateReport}
-            activeOpacity={0.8}
+            activeOpacity={0.85}
             accessibilityRole="button"
             accessibilityLabel="Report an Issue"
           >
-            <Text style={styles.floatingReportButtonText}>📢 Report an Issue</Text>
+            <Text style={styles.floatingReportButtonIcon}>📢</Text>
+            <Text style={styles.floatingReportButtonText}>Report an Issue</Text>
           </TouchableOpacity>
         </View>
       ) : (
         <View style={styles.feedWrapper}>
-          {/* Prominent Report An Issue Action in Feed View */}
+          {/* Report an Issue Callout Card with bold border and elevation */}
           <View style={styles.reportActionContainer}>
-            <Button
-              title="📢 Report an Issue"
-              onPress={onCreateReport}
-              size="lg"
-              style={styles.reportActionButton}
-            />
+            <View style={styles.reportActionCard}>
+              <View style={styles.reportActionLeft}>
+                <View style={styles.reportActionIconBox}>
+                  <Text style={styles.reportActionIcon}>📢</Text>
+                </View>
+                <View style={styles.reportActionTextWrap}>
+                  <Text style={styles.reportActionTitle}>Report a Civic Issue</Text>
+                  <Text style={styles.reportActionSubtitle}>
+                    GPS verified • Directed to official ward
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.createButton}
+                onPress={onCreateReport}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Report a Civic Issue in Andhra Pradesh"
+              >
+                <Text style={styles.createButtonText}>Create →</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          {/* Reports Feed */}
+          {/* Section Heading: Community Reports + count pill */}
+          <View style={styles.feedHeaderRow}>
+            <View>
+              <Text style={styles.feedSectionTitle}>Community Reports</Text>
+              <Text style={styles.feedSubtitle}>
+                Live citizen issues reported in Andhra Pradesh
+              </Text>
+            </View>
+            <View style={styles.countPill}>
+              <Text style={styles.countPillText}>
+                {displayedReports.length} {displayedReports.length === 1 ? 'issue' : 'issues'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Reports Feed with High-Contrast Shimmer Skeleton Loading */}
           {isLoading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={styles.loadingText}>Loading civic reports...</Text>
+            <View style={styles.skeletonContainer}>
+              <SkeletonReportCard />
+              <SkeletonReportCard />
+              <SkeletonReportCard />
             </View>
           ) : error ? (
             <ErrorState
@@ -474,7 +653,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             />
           ) : (
             <FlatList
-              data={reports}
+              data={displayedReports}
               keyExtractor={(item) => item.id}
               renderItem={renderReportItem}
               contentContainerStyle={styles.feedContent}
@@ -486,8 +665,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               ListFooterComponent={
                 isFetchingMore ? (
                   <View style={styles.footerLoader}>
-                    <ActivityIndicator size="small" color={colors.primary} />
-                    <Text style={styles.footerLoaderText}>Loading more reports...</Text>
+                    <ShimmerSkeleton width="90%" height={20} borderRadius={radii.xs} />
                   </View>
                 ) : paginationError ? (
                   <TouchableOpacity
@@ -500,16 +678,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   >
                     <Text style={styles.footerRetryText}>⚠️ {paginationError}</Text>
                   </TouchableOpacity>
-                ) : !hasMore && reports.length > 0 ? (
+                ) : !hasMore && displayedReports.length > 0 ? (
                   <View style={styles.endOfFeedContainer}>
-                    <Text style={styles.endOfFeedText}>✓ You're all caught up on civic reports</Text>
+                    <Text style={styles.endOfFeedText}>✓ You're all caught up on community reports</Text>
                   </View>
                 ) : null
               }
               ListEmptyComponent={
                 <EmptyState
-                  title="No civic reports yet"
-                  description="Be the first to voice an issue in your community and track its resolution."
+                  title={query ? 'No matching reports found' : 'No civic reports in this area'}
+                  description={
+                    query
+                      ? `No reports matched "${query}". Try adjusting your filters or search keywords.`
+                      : 'Be the first citizen to voice an issue in your community and track its official resolution.'
+                  }
                   actionTitle="Report an Issue"
                   onAction={onCreateReport}
                 />
@@ -518,6 +700,62 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           )}
         </View>
       )}
+
+      {/* High-Contrast Bottom Navigation Bar */}
+      <View style={styles.bottomNav}>
+        <TouchableOpacity
+          style={styles.bottomNavItem}
+          onPress={() => handleSelectTab('feed')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.bottomNavIcon, activeTab === 'feed' && styles.bottomNavIconActive]}>
+            🏠
+          </Text>
+          <Text style={[styles.bottomNavLabel, activeTab === 'feed' && styles.bottomNavLabelActive]}>
+            Home
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.bottomNavItem}
+          onPress={() => handleSelectTab('map')}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.bottomNavIcon, activeTab === 'map' && styles.bottomNavIconActive]}>
+            🗺️
+          </Text>
+          <Text style={[styles.bottomNavLabel, activeTab === 'map' && styles.bottomNavLabelActive]}>
+            Map
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.bottomNavItem}
+          onPress={onOpenMyReports || onCreateReport}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.bottomNavIcon}>📋</Text>
+          <Text style={styles.bottomNavLabel}>My Reports</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.bottomNavItem}
+          onPress={onOpenRepresentatives}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.bottomNavIcon}>🏛️</Text>
+          <Text style={styles.bottomNavLabel}>Directory</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.bottomNavItem}
+          onPress={onOpenProfile}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.bottomNavIcon}>👤</Text>
+          <Text style={styles.bottomNavLabel}>Profile</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -525,89 +763,113 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#EEF2F6', // Clear, distinct canvas separation from #FFFFFF cards
   },
   appBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 14,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#CBD5E1', // High contrast bottom border
+  },
+  brandContainer: {
+    justifyContent: 'center',
+    flex: 1,
+  },
+  brandTitleRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.md,
-    backgroundColor: colors.cardBackground,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
-  greeting: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+  brandTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#0F172A', // High contrast dark slate
+    letterSpacing: -0.5,
   },
-  userGreeting: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
+  brandDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#2563EB',
+    marginLeft: 4,
+    marginRight: 8,
+  },
+  stateBadge: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radii.pill,
+    borderWidth: 1.5,
+    borderColor: '#93C5FD',
+  },
+  stateBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#1D4ED8',
+    letterSpacing: 0.5,
+  },
+  brandSubtitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#475569', // Darker slate for readability
+    lineHeight: 16,
+    marginTop: 4,
   },
   appBarActions: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.borderSubtle,
+  actionIconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.sm,
-    position: 'relative',
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
   },
-  iconButtonText: {
-    fontSize: 18,
+  actionIconText: {
+    fontSize: 16,
   },
-  notificationBadge: {
+  notificationDot: {
     position: 'absolute',
-    top: -2,
-    right: -2,
-    backgroundColor: colors.error,
-    borderRadius: 10,
-    minWidth: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  notificationBadgeText: {
-    color: colors.textInverse,
-    fontSize: 10,
-    fontWeight: typography.weights.bold,
+    top: 8,
+    right: 8,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#DC2626',
   },
   avatarButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.primary,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#2563EB',
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    color: colors.textInverse,
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.bold,
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
   },
   authorityBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.secondaryLight,
+    backgroundColor: '#ECFDF5',
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.secondary,
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#A7F3D0',
   },
   authorityBannerIcon: {
-    fontSize: 24,
+    fontSize: 22,
     marginRight: spacing.md,
   },
   authorityBannerContent: {
@@ -616,255 +878,394 @@ const styles = StyleSheet.create({
   authorityBannerTitle: {
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.bold,
-    color: colors.primaryDark,
+    color: '#065F46',
   },
   authorityBannerSubtitle: {
     fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
+    color: '#047857',
+    marginTop: 1,
   },
-  reportActionContainer: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+  authorityBannerArrow: {
+    fontSize: 18,
+    color: '#059669',
+    fontWeight: 'bold',
+    marginLeft: spacing.sm,
   },
-  reportActionButton: {
-    backgroundColor: colors.secondary,
+  // Search section
+  searchSection: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
-  // Segmented Control (Feed vs Map)
+  searchInputContainer: {
+    marginBottom: 0,
+  },
+  searchCustomInput: {
+    fontSize: 14,
+    color: '#0F172A',
+    fontWeight: '500',
+  },
+  searchIcon: {
+    fontSize: 15,
+    color: '#64748B',
+  },
+  clearSearchText: {
+    fontSize: 14,
+    color: '#64748B',
+    paddingHorizontal: spacing.xs,
+  },
+  // Segmented control
   segmentContainer: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xs,
-    backgroundColor: colors.cardBackground,
+    paddingHorizontal: 20,
+    paddingTop: 2,
+    paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
   },
   segmentWrapper: {
     flexDirection: 'row',
-    backgroundColor: colors.borderSubtle,
-    borderRadius: radii.md,
-    padding: 3,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
   },
   segmentTab: {
     flex: 1,
-    paddingVertical: spacing.sm,
+    paddingVertical: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: radii.sm,
+    borderRadius: 10,
   },
   segmentTabActive: {
-    backgroundColor: colors.cardBackground,
-    ...shadows.sm,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  segmentTabInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  segmentTabIcon: {
+    fontSize: 14,
   },
   segmentTabText: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.medium,
-    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
   },
   segmentTabTextActive: {
-    color: colors.primary,
-    fontWeight: typography.weights.bold,
+    color: '#0F172A',
+    fontWeight: '800',
   },
   // Filter Section
   filterSection: {
-    backgroundColor: colors.cardBackground,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    backgroundColor: '#FFFFFF',
+    paddingBottom: 14,
+    borderBottomWidth: 1.5,
+    borderBottomColor: '#CBD5E1',
   },
-  filterList: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xs,
+  categoryList: {
+    paddingHorizontal: 20,
+    gap: 8,
   },
-  statusFilterList: {
-    paddingTop: 2,
-  },
-  filterChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
+  categoryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: radii.pill,
-    backgroundColor: colors.borderSubtle,
-    marginRight: spacing.sm,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1', // Visible border
   },
-  filterChipSelected: {
-    backgroundColor: colors.primary,
+  categoryPillSelected: {
+    backgroundColor: '#2563EB',
+    borderColor: '#1D4ED8',
   },
-  filterChipText: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.medium,
-    color: colors.textSecondary,
+  categoryPillIcon: {
+    fontSize: 13,
+    marginRight: 6,
   },
-  filterChipTextSelected: {
-    color: colors.textInverse,
-    fontWeight: typography.weights.bold,
+  categoryPillText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
   },
-  statusChip: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radii.sm,
-    backgroundColor: colors.cardBackground,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginRight: spacing.xs,
+  categoryPillTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
-  statusChipSelected: {
-    backgroundColor: colors.primaryLight,
-    borderColor: colors.primaryLight,
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginTop: 14,
   },
-  statusChipText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
+  statusSelectedButton: {
+    backgroundColor: '#0F172A',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 8,
   },
-  statusChipTextSelected: {
-    color: colors.textInverse,
-    fontWeight: typography.weights.bold,
+  statusSelectedButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
-  // Layout wrappers
+  statusNormalButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+  },
+  statusNormalText: {
+    color: '#475569', // Darker, crisp text
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  // Map layout
   mapViewWrapper: {
     flex: 1,
     position: 'relative',
   },
+  floatingReportButton: {
+    position: 'absolute',
+    bottom: spacing.xl,
+    alignSelf: 'center',
+    backgroundColor: '#2563EB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radii.pill,
+    ...shadows.lg,
+  },
+  floatingReportButtonIcon: {
+    fontSize: 16,
+  },
+  floatingReportButtonText: {
+    color: '#FFFFFF',
+    fontSize: typography.sizes.body,
+    fontWeight: typography.weights.bold,
+    letterSpacing: 0.2,
+  },
+  // Feed layout
   feedWrapper: {
     flex: 1,
   },
-  floatingReportButton: {
-    position: 'absolute',
-    top: 14,
-    right: spacing.md,
-    backgroundColor: colors.secondary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.full,
-    ...shadows.md,
+  reportActionContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
   },
-  floatingReportButtonText: {
-    color: colors.textInverse,
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.bold,
+  reportActionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1', // High contrast border
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 5,
+    elevation: 2,
   },
-  categoryFilterContainer: {
-    marginVertical: spacing.xs,
+  reportActionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
   },
-  categoryList: {
-    paddingHorizontal: spacing.lg,
-  },
-  categoryChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.pill,
-    backgroundColor: colors.cardBackground,
+  reportActionIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: colors.border,
-    marginRight: spacing.sm,
+    borderColor: '#BFDBFE',
   },
-  categoryChipSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  reportActionIcon: {
+    fontSize: 22,
   },
-  categoryChipText: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.medium,
-    color: colors.textSecondary,
+  reportActionTextWrap: {
+    flex: 1,
   },
-  categoryChipTextSelected: {
-    color: colors.textInverse,
-    fontWeight: typography.weights.semibold,
+  reportActionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
   },
-  feedContent: {
-    padding: spacing.lg,
-    paddingBottom: spacing.hero,
+  reportActionSubtitle: {
+    fontSize: 12,
+    color: '#475569',
+    fontWeight: '500',
+    marginTop: 2,
   },
-  reportCard: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    marginBottom: spacing.md,
+  createButton: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: colors.border,
-    ...shadows.card,
+    borderColor: '#1D4ED8',
   },
-  cardHeader: {
+  createButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  feedHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.xs,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
   },
-  cardCategory: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.bold,
-    color: colors.primaryLight,
+  feedSectionTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.3,
   },
-  cardTitle: {
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
-    marginBottom: spacing.xs,
+  feedSubtitle: {
+    fontSize: 12,
+    color: '#475569',
+    fontWeight: '500',
+    marginTop: 2,
   },
-  cardBodyRow: {
+  countPill: {
+    backgroundColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  countPillText: {
+    fontSize: 11,
+    color: '#334155',
+    fontWeight: '700',
+  },
+  feedContent: {
+    paddingHorizontal: 20,
+    paddingTop: 6,
+    paddingBottom: 24,
+  },
+  skeletonContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 6,
+  },
+  reportCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1', // High contrast border to prevent blending
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  cardCategoryLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  cardMainContent: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-    gap: spacing.sm,
+    gap: 12,
+    marginBottom: 12,
   },
   cardTextContent: {
     flex: 1,
   },
-  cardThumbnail: {
-    width: 64,
-    height: 64,
-    borderRadius: radii.md,
-    backgroundColor: colors.borderSubtle,
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A', // High contrast dark slate
+    lineHeight: 20,
+    marginBottom: 4,
   },
   cardDescription: {
-    fontSize: typography.sizes.sm,
-    color: colors.textSecondary,
-    lineHeight: typography.lineHeights.normal,
+    fontSize: 13,
+    color: '#475569', // Clear, readable text
+    lineHeight: 18,
+  },
+  cardThumbnail: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#E2E8F0',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  cardCategoryTile: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardCategoryTileIcon: {
+    fontSize: 20,
   },
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: colors.borderSubtle,
-    paddingTop: spacing.sm,
+    borderTopColor: '#F1F5F9',
   },
   cardLocationButton: {
     flex: 1,
     marginRight: spacing.sm,
   },
-  cardLocation: {
-    fontSize: typography.sizes.xs,
-    color: colors.textMuted,
+  cardLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  cardLocationInteractive: {
-    color: colors.primary,
-    fontWeight: '600',
+  cardPinIcon: {
+    fontSize: 12,
+    marginRight: 4,
+  },
+  cardLocationText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#DC2626', // Vibrant, high-contrast red
   },
   cardDate: {
-    fontSize: typography.sizes.xs,
-    color: colors.textMuted,
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xl,
-  },
-  loadingText: {
-    marginTop: spacing.md,
-    color: colors.textSecondary,
-    fontSize: typography.sizes.sm,
+    fontSize: 12,
+    color: '#475569',
+    fontWeight: '600',
   },
   footerLoader: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.lg,
-    gap: spacing.sm,
-  },
-  footerLoaderText: {
-    fontSize: typography.sizes.sm,
-    color: colors.textSecondary,
-    fontWeight: '500',
   },
   footerRetryButton: {
     alignItems: 'center',
@@ -872,15 +1273,15 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
     marginVertical: spacing.sm,
-    backgroundColor: '#FFFBEB',
+    backgroundColor: colors.warningBackground,
     borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderWidth: 1.5,
+    borderColor: colors.warningBorder,
   },
   footerRetryText: {
     fontSize: typography.sizes.sm,
-    color: '#B45309',
-    fontWeight: '600',
+    color: colors.warning,
+    fontWeight: typography.weights.semibold,
   },
   endOfFeedContainer: {
     alignItems: 'center',
@@ -890,7 +1291,39 @@ const styles = StyleSheet.create({
   },
   endOfFeedText: {
     fontSize: typography.sizes.xs,
-    color: colors.textMuted,
-    fontWeight: '500',
+    color: '#475569',
+    fontWeight: typography.weights.medium,
+  },
+  bottomNav: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1.5,
+    borderTopColor: '#CBD5E1', // Distinct separator from background
+    paddingVertical: 10,
+    paddingBottom: 14,
+  },
+  bottomNavItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  bottomNavIcon: {
+    fontSize: 19,
+    color: '#64748B',
+    marginBottom: 3,
+  },
+  bottomNavIconActive: {
+    color: '#2563EB',
+  },
+  bottomNavLabel: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  bottomNavLabelActive: {
+    color: '#2563EB',
+    fontWeight: '800',
   },
 });

@@ -367,4 +367,99 @@ describe('AuthService Integration & Logic Tests', () => {
       );
     });
   });
+
+  describe('GPS-Verified Current Location', () => {
+    let testUserId: string;
+
+    beforeEach(async () => {
+      const reg = await authService.register({
+        email: 'gpsuser@example.com',
+        password: 'Password123!',
+        displayName: 'GPS User',
+      });
+      testUserId = reg.id;
+    });
+
+    it('should resolve and verify location inside Visakhapatnam, Andhra Pradesh', async () => {
+      // Visakhapatnam coordinates: [lng: 83.2185, lat: 17.6868]
+      const profile = await authService.verifyUserLocation(testUserId, {
+        coordinates: [83.2185, 17.6868],
+        accuracyMeters: 15,
+        timestamp: Date.now(),
+      });
+
+      expect(profile.verifiedCurrentLocation).toBeDefined();
+      expect(profile.verifiedCurrentLocation?.status).toBe('VERIFIED');
+      expect(profile.verifiedCurrentLocation?.state).toBe('Andhra Pradesh');
+      expect(profile.verifiedCurrentLocation?.districtName).toBe('Visakhapatnam');
+      expect(profile.verifiedCurrentLocation?.cityOrTown).toBe('Visakhapatnam');
+      expect(profile.verifiedCurrentLocation?.verificationSource).toBe('GPS_DEVICE');
+    });
+
+    it('should mark location as OUTSIDE_AP when coordinates fall outside Andhra Pradesh', async () => {
+      // Hyderabad coordinates: [lng: 78.4867, lat: 17.3850] (Telangana)
+      const profile = await authService.verifyUserLocation(testUserId, {
+        coordinates: [78.4867, 17.3850],
+        accuracyMeters: 20,
+        timestamp: Date.now(),
+      });
+
+      expect(profile.verifiedCurrentLocation).toBeDefined();
+      expect(profile.verifiedCurrentLocation?.status).toBe('OUTSIDE_AP');
+      expect(profile.verifiedCurrentLocation?.state).toBe('Outside Andhra Pradesh');
+      expect(profile.verifiedCurrentLocation?.districtName).toBeUndefined();
+    });
+
+    it('should mark location as INACCURATE when accuracy exceeds tolerance (>3000m)', async () => {
+      const profile = await authService.verifyUserLocation(testUserId, {
+        coordinates: [83.2185, 17.6868],
+        accuracyMeters: 4500, // 4.5km accuracy
+        timestamp: Date.now(),
+      });
+
+      expect(profile.verifiedCurrentLocation).toBeDefined();
+      expect(profile.verifiedCurrentLocation?.status).toBe('INACCURATE');
+      expect(profile.verifiedCurrentLocation?.state).toBe('Andhra Pradesh');
+    });
+
+    it('should reject stale GPS fix older than 10 minutes', async () => {
+      const staleTimestamp = Date.now() - 15 * 60 * 1000; // 15 mins ago
+      await expect(
+        authService.verifyUserLocation(testUserId, {
+          coordinates: [83.2185, 17.6868],
+          accuracyMeters: 10,
+          timestamp: staleTimestamp,
+        }),
+      ).rejects.toThrow('GPS fix timestamp is stale or invalid');
+    });
+
+    it('should reject invalid coordinates out of geographic range', async () => {
+      await expect(
+        authService.verifyUserLocation(testUserId, {
+          coordinates: [200, 100], // invalid
+        }),
+      ).rejects.toThrow('Coordinates are out of valid geographic range');
+    });
+
+    it('should update location legitimately when user moves from Vizag to Vijayawada', async () => {
+      // First in Vizag
+      const p1 = await authService.verifyUserLocation(testUserId, {
+        coordinates: [83.2185, 17.6868],
+        accuracyMeters: 10,
+        timestamp: Date.now(),
+      });
+      expect(p1.verifiedCurrentLocation?.districtName).toBe('Visakhapatnam');
+
+      // Now moves to Vijayawada (NTR district): [lng: 80.6480, lat: 16.5062]
+      const p2 = await authService.verifyUserLocation(testUserId, {
+        coordinates: [80.6480, 16.5062],
+        accuracyMeters: 12,
+        timestamp: Date.now(),
+      });
+      expect(p2.verifiedCurrentLocation?.districtName).toBe('NTR');
+      expect(p2.verifiedCurrentLocation?.cityOrTown).toBe('Vijayawada');
+      expect(p2.verifiedCurrentLocation?.status).toBe('VERIFIED');
+    });
+  });
 });
+

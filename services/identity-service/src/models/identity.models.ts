@@ -1,4 +1,4 @@
-import { UserRole, AccountStatus } from '@civic-pulse/contracts';
+import { UserRole, AccountStatus, VerifiedCurrentLocationDto } from '@civic-pulse/contracts';
 
 export interface UserDocument {
   _id: string; // uuid
@@ -12,6 +12,7 @@ export interface UserDocument {
   updatedAt: Date;
   lastLoginAt?: Date;
   tokenVersion?: number;
+  verifiedCurrentLocation?: VerifiedCurrentLocationDto;
 }
 
 export interface SessionDocument {

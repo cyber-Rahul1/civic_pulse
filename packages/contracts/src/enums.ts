@@ -52,6 +52,15 @@ export enum GpsEligibilityStatus {
   UNVERIFIED = 'UNVERIFIED',
 }
 
+export enum LocationVerificationStatus {
+  UNVERIFIED = 'UNVERIFIED',
+  VERIFYING = 'VERIFYING',
+  VERIFIED = 'VERIFIED',
+  OUTSIDE_AP = 'OUTSIDE_AP',
+  INACCURATE = 'INACCURATE',
+  UNAVAILABLE = 'UNAVAILABLE',
+}
+
 export enum RepresentativeOfficeType {
   WARD_COUNCILLOR = 'WARD_COUNCILLOR',
   SARPANCH = 'SARPANCH',

@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength, IsArray, IsNumber } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RegisterDto {
@@ -41,3 +41,20 @@ export class LogoutDto {
   @IsString()
   refreshToken?: string;
 }
+
+export class VerifyLocationDto {
+  @ApiProperty({ description: 'Coordinates in [longitude, latitude] GeoJSON format', example: [83.2185, 17.6868] })
+  @IsArray({ message: 'Coordinates must be an array [longitude, latitude]' })
+  coordinates!: [number, number];
+
+  @ApiPropertyOptional({ description: 'Reported GPS accuracy in meters', example: 12.5 })
+  @IsOptional()
+  @IsNumber({}, { message: 'accuracyMeters must be a number' })
+  accuracyMeters?: number;
+
+  @ApiPropertyOptional({ description: 'GPS fix timestamp in milliseconds', example: 1729864200000 })
+  @IsOptional()
+  @IsNumber({}, { message: 'timestamp must be a number' })
+  timestamp?: number;
+}
+

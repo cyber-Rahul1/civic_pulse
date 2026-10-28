@@ -12,6 +12,7 @@ export interface AuthContextValue {
   register: (dto: RegisterDto) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  updateUser: (user: UserProfileDto) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -109,6 +110,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateUser = (updatedUser: UserProfileDto) => {
+    setUser(updatedUser);
+    secureStorage.setItemAsync('civic_user_profile', JSON.stringify(updatedUser)).catch(() => {});
+  };
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -119,6 +125,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       register,
       logout,
       refreshProfile,
+      updateUser,
     }),
     [user, isLoading]
   );

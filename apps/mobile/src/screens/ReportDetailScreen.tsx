@@ -17,6 +17,9 @@ import {
   CommunitySummaryDto,
   PublicAssignmentViewDto,
   ResolutionEvidenceDto,
+  ReportRepresentativeAssociationDto,
+  EvidenceType,
+  RepresentativeVerificationStatus,
 } from '@civic-pulse/contracts';
 import { apiClient } from '../api/api-client';
 import { useAuth } from '../context/auth-context';
@@ -24,27 +27,39 @@ import { StatusBadge } from '../components/StatusBadge';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { ErrorState } from '../components/FeedbackStates';
+import { SkeletonDetailView } from '../components/ShimmerSkeleton';
 import { BeforeAfterEvidence } from '../components/BeforeAfterEvidence';
+import { CameraCaptureModal, PhotoCaptureResult } from '../components/CameraCaptureModal';
 import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface ReportDetailScreenProps {
   reportId: string;
   onBack: () => void;
   onNavigateToLocation?: (reportId: string, coordinates: [number, number]) => void;
+  onSelectRepresentative?: (representativeId: string) => void;
 }
 
 export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
   reportId,
   onBack,
   onNavigateToLocation,
+  onSelectRepresentative,
 }) => {
   const { user } = useAuth();
   const [report, setReport] = useState<ReportDto | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [assignment, setAssignment] = useState<PublicAssignmentViewDto | null>(null);
+  const [representatives, setRepresentatives] = useState<ReportRepresentativeAssociationDto[]>([]);
   const [communitySummary, setCommunitySummary] = useState<CommunitySummaryDto | null>(null);
   const [comments, setComments] = useState<CommentDto[]>([]);
   
+  // Resolution Photo Upload Modal State
+  const [showUploadEvidenceModal, setShowUploadEvidenceModal] = useState(false);
+  const [evidenceDescription, setEvidenceDescription] = useState('');
+  const [isUploadingEvidence, setIsUploadingEvidence] = useState(false);
+  const [evidenceUploadSuccess, setEvidenceUploadSuccess] = useState<string | null>(null);
+  const [evidenceUploadError, setEvidenceUploadError] = useState<string | null>(null);
+
   // Actions state
   const [isEndorsing, setIsEndorsing] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -75,11 +90,12 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
     try {
       setError(null);
       setCommentsError(null);
-      const [reportData, historyData, assignmentData, communityData, commentsData, evidenceData] =
+      const [reportData, historyData, assignmentData, repsData, communityData, commentsData, evidenceData] =
         await Promise.all([
           apiClient.getReport(reportId),
           apiClient.getReportHistory(reportId).catch(() => []),
           apiClient.getPublicAssignment(reportId).catch(() => null),
+          apiClient.getReportRepresentatives(reportId).catch(() => []),
           apiClient.getCommunitySummary(reportId).catch(() => null),
           apiClient.listComments(reportId, 1, 10).catch(() => ({ items: [], total: 0, page: 1, totalPages: 1 })),
           apiClient.getReportEvidence(reportId).catch(() => []),
@@ -88,6 +104,7 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
       setReport(reportData);
       setHistory(historyData || []);
       setAssignment(assignmentData);
+      setRepresentatives(repsData || []);
       setCommunitySummary(communityData);
       setEvidenceList(evidenceData || []);
       const initialComments = commentsData?.items || [];
@@ -101,6 +118,72 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
       setIsLoading(false);
     }
   }, [reportId]);
+
+  // Handle Resident / Community Resolution Photo Upload
+  const handlePhotoAcceptedForEvidence = async (photo: PhotoCaptureResult) => {
+    setShowUploadEvidenceModal(false);
+    setIsUploadingEvidence(true);
+    setEvidenceUploadError(null);
+    setEvidenceUploadSuccess(null);
+
+    try {
+      // 1. Sign upload with Cloudinary CDN pipeline
+      const signRes = await apiClient.signMediaUpload({ resourceType: 'image' });
+      const uploadUrl = `https://api.cloudinary.com/v1_1/${signRes.cloudName}/image/upload`;
+      const formData = new FormData();
+      formData.append('file', {
+        uri: photo.uri,
+        type: photo.type || 'image/jpeg',
+        name: photo.name || 'civic_resolution_evidence.jpg',
+      } as any);
+      formData.append('api_key', signRes.apiKey);
+      formData.append('timestamp', String(signRes.timestamp));
+      formData.append('signature', signRes.signature);
+      formData.append('folder', signRes.uploadFolder);
+      formData.append('public_id', signRes.publicId);
+
+      const cloudRes = await fetch(uploadUrl, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!cloudRes.ok) {
+        const errData = await cloudRes.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || 'Failed to upload photo to Cloudinary CDN.');
+      }
+
+      const uploadResult = await cloudRes.json();
+      const mediaItem = {
+        mediaId: signRes.publicId,
+        publicId: uploadResult.public_id || signRes.publicId,
+        url: uploadResult.url || uploadResult.secure_url,
+        secureUrl: uploadResult.secure_url || uploadResult.url,
+        format: uploadResult.format || 'jpg',
+        resourceType: 'image' as const,
+        bytes: uploadResult.bytes || 1024,
+      };
+
+      // 2. Persist resolution evidence record on the backend
+      const savedEvidence = await apiClient.submitResolutionEvidence(reportId, {
+        evidenceType: EvidenceType.AFTER,
+        media: mediaItem,
+        description: evidenceDescription.trim() || undefined,
+      });
+
+      // 3. Immediately refresh evidence list without app restart
+      setEvidenceList((prev) => [savedEvidence, ...prev]);
+      setEvidenceDescription('');
+      setEvidenceUploadSuccess(
+        savedEvidence.verificationStatus === 'VERIFIED'
+          ? 'Resolution evidence verified and added successfully.'
+          : 'Resolution photo submitted! It is now pending official review.'
+      );
+    } catch (err: any) {
+      setEvidenceUploadError(err?.message || 'Failed to submit resolution photo. Please try again.');
+    } finally {
+      setIsUploadingEvidence(false);
+    }
+  };
 
   const handleLoadMoreComments = useCallback(async () => {
     if (isFetchingMoreComments || !hasMoreComments) return;
@@ -258,9 +341,17 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
 
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading report details...</Text>
+      <View style={styles.screenContainer}>
+        <View style={styles.navBar}>
+          <TouchableOpacity onPress={onBack}>
+            <Text style={styles.backButtonText}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.navTitle}>Report Record</Text>
+          <View style={{ width: 48 }} />
+        </View>
+        <ScrollView contentContainerStyle={{ paddingBottom: spacing.hero }}>
+          <SkeletonDetailView />
+        </ScrollView>
       </View>
     );
   }
@@ -284,6 +375,16 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
 
   return (
     <View style={styles.screenContainer}>
+      {/* Top App / Navigation Bar */}
+      <View style={styles.navBar}>
+        <TouchableOpacity onPress={onBack} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Back to reports">
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleShare} accessibilityRole="button" accessibilityLabel="Share report">
+          <Text style={styles.shareText}>📤 Share</Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         scrollEventThrottle={200}
@@ -295,15 +396,6 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
           }
         }}
       >
-        {/* Navigation Bar */}
-        <View style={styles.navBar}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Text style={styles.backButtonText}>← Back</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleShare}>
-            <Text style={styles.shareText}>📤 Share</Text>
-          </TouchableOpacity>
-        </View>
 
         {/* Status & Category */}
         <View style={styles.badgeRow}>
@@ -441,28 +533,140 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
           </View>
         </Modal>
 
-        {/* Official Assignment Section */}
+        {/* Responsible Department (Operational Execution) */}
         {assignment?.currentAssignment && (
           <View style={styles.assignmentBox}>
-            <Text style={styles.assignmentHeader}>🏛️ Assigned Municipal Department</Text>
+            <Text style={styles.assignmentHeader}>🏛️ Responsible Department (Operations & Repairs)</Text>
             <Text style={styles.departmentName}>
               {assignment.currentAssignment.departmentName}
             </Text>
             <Text style={styles.assignmentJurisdiction}>
-              Jurisdiction: {assignment.currentAssignment.jurisdiction}
+              Operational Jurisdiction: {assignment.currentAssignment.jurisdiction}
             </Text>
           </View>
         )}
+
+        {/* Responsible Representative / Local Representative Section */}
+        <View style={styles.representativesSection}>
+          <Text style={styles.representativesHeader}>🏛️ Area Representatives</Text>
+          {representatives.length === 0 ? (
+            <View style={styles.noRepCard}>
+              <Text style={styles.noRepText}>
+                Representative information is not available for this location yet.
+              </Text>
+            </View>
+          ) : (
+            representatives.map((rep) => {
+              const isVerifiedOfficial =
+                rep.verificationStatus === RepresentativeVerificationStatus.VERIFIED_OFFICIAL;
+              const isPending =
+                rep.verificationStatus === RepresentativeVerificationStatus.FLAGGED_FOR_REVIEW ||
+                rep.verificationStatus === RepresentativeVerificationStatus.UNVERIFIED;
+
+              return (
+                <View key={rep.id || rep.representativeId} style={styles.representativeCard}>
+                  <View style={styles.repTopRow}>
+                    {/* Clickable Portrait / Avatar */}
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => onSelectRepresentative && onSelectRepresentative(rep.representativeId)}
+                      style={styles.repAvatarTouchable}
+                      accessibilityRole="button"
+                      accessibilityLabel={`View profile of ${rep.representativeName}`}
+                    >
+                      {rep.photoUrl && rep.isPhotoVerified ? (
+                        <Image source={{ uri: rep.photoUrl }} style={styles.repAvatarImage} resizeMode="cover" />
+                      ) : (
+                        <View style={styles.repAvatarFallback}>
+                          <Text style={styles.repAvatarInitial}>
+                            {rep.representativeName.charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+
+                    {/* Details Column */}
+                    <View style={styles.repDetailsCol}>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => onSelectRepresentative && onSelectRepresentative(rep.representativeId)}
+                      >
+                        <Text style={styles.repName}>{rep.representativeName}</Text>
+                      </TouchableOpacity>
+
+                      <Text style={styles.repDesignation}>
+                        {rep.officialDesignation || rep.officeType}
+                      </Text>
+
+                      <Text style={styles.repJurisdiction}>{rep.jurisdictionName}</Text>
+
+                      {rep.partyAffiliation && isVerifiedOfficial && (
+                        <Text style={styles.repParty}>Party: {rep.partyAffiliation}</Text>
+                      )}
+
+                      <View style={styles.repBadgeRow}>
+                        {isVerifiedOfficial ? (
+                          <View style={styles.repVerifiedBadge}>
+                            <Text style={styles.repVerifiedBadgeText}>✓ Officially verified</Text>
+                          </View>
+                        ) : isPending ? (
+                          <View style={styles.repPendingBadge}>
+                            <Text style={styles.repPendingBadgeText}>⏳ Verification pending</Text>
+                          </View>
+                        ) : (
+                          <View style={styles.repNeutralBadge}>
+                            <Text style={styles.repNeutralBadgeText}>Active Term</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Clickable Action to Public Profile */}
+                  <TouchableOpacity
+                    style={styles.viewProfileBtn}
+                    activeOpacity={0.8}
+                    onPress={() => onSelectRepresentative && onSelectRepresentative(rep.representativeId)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View public profile of ${rep.representativeName}`}
+                  >
+                    <Text style={styles.viewProfileBtnText}>View Public Profile →</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })
+          )}
+        </View>
 
         {/* Issue Description */}
         <Text style={styles.sectionTitle}>Description</Text>
         <Text style={styles.descriptionText}>{report.description}</Text>
 
+        {/* Resolution Evidence Notifications */}
+        {evidenceUploadSuccess && (
+          <View style={styles.evidenceSuccessBox}>
+            <Text style={styles.evidenceSuccessText}>✅ {evidenceUploadSuccess}</Text>
+          </View>
+        )}
+        {evidenceUploadError && (
+          <View style={styles.evidenceErrorBox}>
+            <Text style={styles.evidenceErrorText}>⚠️ {evidenceUploadError}</Text>
+          </View>
+        )}
+
         {/* Resolution Before/After Comparison Component */}
         <BeforeAfterEvidence
-          beforePhotoUrl={report.media && report.media.length > 0 ? (report.media[0]?.secureUrl || report.media[0]?.url || null) : null}
+          beforePhotoUrl={
+            report.media && report.media.length > 0
+              ? (report.media[0]?.secureUrl || report.media[0]?.url || null)
+              : null
+          }
           afterEvidence={evidenceList.find((e) => e.evidenceType === 'AFTER') || null}
+          reportStatus={report.status}
+          resolutionNotes={report.resolutionNotes}
           onImagePress={(uri) => setSelectedImageUri(uri)}
+          onAddResolutionPhotoPress={() => setShowUploadEvidenceModal(true)}
+          canUploadEvidence={Boolean(user)}
         />
 
         {/* Resolution Notes (if resolved) */}
@@ -621,6 +825,23 @@ export const ReportDetailScreen: React.FC<ReportDetailScreenProps> = ({
           )}
         </View>
       </ScrollView>
+
+      {/* Camera Capture Modal for Adding Resolution Photo */}
+      {showUploadEvidenceModal && (
+        <CameraCaptureModal
+          onPhotoAccepted={handlePhotoAcceptedForEvidence}
+          onSkip={() => setShowUploadEvidenceModal(false)}
+          onCancel={() => setShowUploadEvidenceModal(false)}
+        />
+      )}
+
+      {/* Uploading Evidence Spinner Overlay */}
+      {isUploadingEvidence && (
+        <View style={styles.uploadingOverlay}>
+          <ActivityIndicator size="large" color="#FFFFFF" />
+          <Text style={styles.uploadingOverlayText}>Uploading resolution photo evidence...</Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -649,8 +870,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing.md,
-    marginBottom: spacing.xs,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSubtle,
+  },
+  navTitle: {
+    fontSize: typography.sizes.md,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
   },
   backButton: {
     paddingVertical: spacing.xs,
@@ -658,12 +888,12 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: colors.primary,
     fontSize: typography.sizes.md,
-    fontWeight: typography.weights.medium,
+    fontWeight: typography.weights.semibold,
   },
   shareText: {
     color: colors.primary,
     fontSize: typography.sizes.md,
-    fontWeight: typography.weights.medium,
+    fontWeight: typography.weights.semibold,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -674,7 +904,8 @@ const styles = StyleSheet.create({
   categoryBadge: {
     fontSize: typography.sizes.xs,
     fontWeight: typography.weights.bold,
-    color: colors.primaryLight,
+    color: colors.primary,
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
   reportTitle: {
@@ -682,21 +913,27 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.bold,
     color: colors.textPrimary,
     marginBottom: spacing.xs,
+    lineHeight: 28,
   },
   metaText: {
     fontSize: typography.sizes.xs,
-    color: colors.textMuted,
+    color: colors.textSecondary,
     marginBottom: spacing.md,
   },
   locationBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.cardBackground,
+    backgroundColor: colors.surface,
     padding: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: spacing.md,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   locationIcon: {
     fontSize: 20,
@@ -718,20 +955,21 @@ const styles = StyleSheet.create({
   },
   viewOnMapBadge: {
     fontSize: typography.sizes.xs,
-    fontWeight: '700',
+    fontWeight: typography.weights.bold,
     color: colors.primary,
     marginLeft: spacing.xs,
   },
   locationSub: {
     fontSize: typography.sizes.xs,
     color: colors.textMuted,
+    marginTop: 2,
   },
   assignmentBox: {
-    backgroundColor: colors.primaryMuted,
+    backgroundColor: colors.primaryLight,
     padding: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.primaryLight,
+    borderColor: '#D4E2FC',
     marginBottom: spacing.md,
   },
   assignmentHeader: {
@@ -743,11 +981,12 @@ const styles = StyleSheet.create({
   departmentName: {
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.bold,
-    color: colors.primaryDark,
+    color: colors.textPrimary,
   },
   assignmentJurisdiction: {
     fontSize: typography.sizes.xs,
     color: colors.textSecondary,
+    marginTop: 2,
   },
   sectionTitle: {
     fontSize: typography.sizes.md,
@@ -757,8 +996,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   descriptionText: {
-    fontSize: typography.sizes.md,
-    color: colors.textSecondary,
+    fontSize: typography.sizes.sm,
+    color: colors.textPrimary,
     lineHeight: typography.lineHeights.relaxed,
     marginBottom: spacing.md,
   },
@@ -767,7 +1006,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.success,
+    borderColor: colors.successBorder,
     marginBottom: spacing.md,
   },
   resolutionTitle: {
@@ -779,15 +1018,15 @@ const styles = StyleSheet.create({
   resolutionText: {
     fontSize: typography.sizes.sm,
     color: colors.textPrimary,
+    lineHeight: 20,
   },
   communityActionRow: {
     flexDirection: 'row',
-    marginHorizontal: -spacing.xs,
+    gap: spacing.sm,
     marginVertical: spacing.md,
   },
   communityBtn: {
     flex: 1,
-    marginHorizontal: spacing.xs,
   },
   historySection: {
     marginVertical: spacing.md,
@@ -826,12 +1065,17 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   commentInputBox: {
-    backgroundColor: colors.cardBackground,
+    backgroundColor: colors.surface,
     padding: spacing.md,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: spacing.md,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   replyingNotice: {
     flexDirection: 'row',
@@ -848,12 +1092,17 @@ const styles = StyleSheet.create({
     color: colors.error,
   },
   commentCard: {
-    backgroundColor: colors.cardBackground,
+    backgroundColor: colors.surface,
     borderRadius: radii.md,
     padding: spacing.md,
     marginBottom: spacing.sm,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.borderSubtle,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
+    elevation: 1,
   },
   commentHeader: {
     flexDirection: 'row',
@@ -882,20 +1131,22 @@ const styles = StyleSheet.create({
   },
   replyActionText: {
     fontSize: typography.sizes.xs,
-    color: colors.primaryLight,
-    fontWeight: typography.weights.medium,
+    color: colors.primary,
+    fontWeight: typography.weights.semibold,
   },
   viewRepliesText: {
     fontSize: typography.sizes.xs,
-    color: colors.secondary,
-    fontWeight: typography.weights.medium,
+    color: colors.action,
+    fontWeight: typography.weights.semibold,
   },
   replyCard: {
-    backgroundColor: colors.borderSubtle,
+    backgroundColor: colors.surfaceMuted,
     borderRadius: radii.sm,
     padding: spacing.sm,
     marginTop: spacing.xs,
     marginLeft: spacing.md,
+    borderLeftWidth: 2,
+    borderLeftColor: colors.border,
   },
   replyAuthor: {
     fontSize: typography.sizes.xs,
@@ -920,10 +1171,15 @@ const styles = StyleSheet.create({
     height: 180,
     borderRadius: radii.md,
     overflow: 'hidden',
-    backgroundColor: colors.cardBackground,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     position: 'relative',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   mediaImage: {
     width: '100%',
@@ -942,7 +1198,7 @@ const styles = StyleSheet.create({
   },
   mediaErrorPlaceholder: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#FFF0F0',
+    backgroundColor: colors.errorBackground,
     justifyContent: 'center',
     alignItems: 'center',
     padding: spacing.sm,
@@ -961,7 +1217,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: spacing.xs,
     right: spacing.xs,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: 'rgba(23, 32, 51, 0.75)',
     borderRadius: radii.sm,
     paddingHorizontal: spacing.sm,
     paddingVertical: 3,
@@ -974,7 +1230,7 @@ const styles = StyleSheet.create({
   // Modal Styles
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.92)',
+    backgroundColor: 'rgba(15, 23, 42, 0.94)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1000,9 +1256,9 @@ const styles = StyleSheet.create({
   commentsRetryBtn: {
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
-    backgroundColor: '#FFFBEB',
+    backgroundColor: colors.warningBackground,
     borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderColor: colors.warningBorder,
     borderRadius: radii.md,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1010,7 +1266,7 @@ const styles = StyleSheet.create({
   },
   commentsRetryText: {
     fontSize: typography.sizes.sm,
-    color: '#B45309',
+    color: colors.warning,
     fontWeight: '600',
   },
   loadMoreRow: {
@@ -1034,5 +1290,187 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xs,
     color: colors.textMuted,
     fontWeight: '500',
+  },
+  // Representatives Section Styles
+  representativesSection: {
+    marginBottom: spacing.md,
+  },
+  representativesHeader: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  noRepCard: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+    padding: spacing.md,
+  },
+  noRepText: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  representativeCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  repTopRow: {
+    flexDirection: 'row',
+  },
+  repAvatarTouchable: {
+    marginRight: spacing.md,
+  },
+  repAvatarImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: colors.borderSubtle,
+  },
+  repAvatarFallback: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#D4E2FC',
+  },
+  repAvatarInitial: {
+    fontSize: 22,
+    fontWeight: typography.weights.bold,
+    color: colors.primary,
+  },
+  repDetailsCol: {
+    flex: 1,
+  },
+  repName: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+  },
+  repDesignation: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.semibold,
+    color: colors.primary,
+    marginTop: 1,
+  },
+  repJurisdiction: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  repParty: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  repBadgeRow: {
+    flexDirection: 'row',
+    marginTop: 4,
+  },
+  repVerifiedBadge: {
+    backgroundColor: '#EDFDF5',
+    borderColor: '#B9F1D4',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.pill,
+  },
+  repVerifiedBadgeText: {
+    color: colors.success,
+    fontSize: 10,
+    fontWeight: typography.weights.bold,
+  },
+  repPendingBadge: {
+    backgroundColor: '#FEF9C3',
+    borderColor: '#FDE047',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.pill,
+  },
+  repPendingBadgeText: {
+    color: colors.warning,
+    fontSize: 10,
+    fontWeight: typography.weights.bold,
+  },
+  repNeutralBadge: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.borderSubtle,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.pill,
+  },
+  repNeutralBadgeText: {
+    color: colors.textSecondary,
+    fontSize: 10,
+    fontWeight: typography.weights.medium,
+  },
+  viewProfileBtn: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderSubtle,
+    alignItems: 'flex-end',
+  },
+  viewProfileBtnText: {
+    fontSize: typography.sizes.xs,
+    color: colors.primary,
+    fontWeight: typography.weights.bold,
+  },
+  // Evidence Feedback Banners
+  evidenceSuccessBox: {
+    backgroundColor: colors.successBackground,
+    borderColor: colors.successBorder,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  evidenceSuccessText: {
+    color: colors.success,
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.medium,
+  },
+  evidenceErrorBox: {
+    backgroundColor: colors.errorBackground,
+    borderColor: colors.errorBorder,
+    borderWidth: 1,
+    borderRadius: radii.md,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  evidenceErrorText: {
+    color: colors.error,
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.medium,
+  },
+  // Uploading Overlay
+  uploadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(23, 32, 51, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 999,
+  },
+  uploadingOverlayText: {
+    color: '#FFFFFF',
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.bold,
+    marginTop: spacing.md,
   },
 });

@@ -5,10 +5,10 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   Modal,
   TextInput,
   Alert,
+  Image,
 } from 'react-native';
 import { apiClient } from '../api/api-client';
 import {
@@ -16,10 +16,11 @@ import {
   RepresentativeAccountabilitySummaryDto,
   ReportDto,
 } from '@civic-pulse/contracts';
-import { colors, typography, spacing } from '../theme/tokens';
+import { colors, typography, spacing, radii } from '../theme/tokens';
 import { Button } from '../components/Button';
 import { StatusBadge } from '../components/StatusBadge';
 import { ErrorState } from '../components/FeedbackStates';
+import { ShimmerSkeleton, SkeletonReportCard } from '../components/ShimmerSkeleton';
 
 interface RepresentativeProfileScreenProps {
   representativeId: string;
@@ -38,6 +39,8 @@ export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenPr
   const [activeTab, setActiveTab] = useState<'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'ALL'>('ALL');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [portraitError, setPortraitError] = useState<boolean>(false);
+  const [reportImageErrorMap, setReportImageErrorMap] = useState<Record<string, boolean>>({});
 
   // Claim Modal State
   const [isClaimModalVisible, setIsClaimModalVisible] = useState<boolean>(false);
@@ -109,9 +112,45 @@ export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenPr
 
   if (isLoading && !profile) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading representative profile...</Text>
+      <View style={styles.container}>
+        <View style={styles.navBar}>
+          <TouchableOpacity onPress={onBack}>
+            <Text style={styles.backText}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.navTitle}>Representative Profile</Text>
+          <View style={{ width: 48 }} />
+        </View>
+        <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.hero }}>
+          {/* Header Card Skeleton */}
+          <View style={styles.profileHeaderCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <ShimmerSkeleton width={80} height={80} borderRadius={radii.pill} />
+              <View style={{ marginLeft: spacing.md, flex: 1 }}>
+                <ShimmerSkeleton width={180} height={20} borderRadius={radii.xs} />
+                <ShimmerSkeleton width={140} height={14} borderRadius={radii.xs} style={{ marginTop: 6 }} />
+                <ShimmerSkeleton width={100} height={14} borderRadius={radii.xs} style={{ marginTop: 6 }} />
+              </View>
+            </View>
+          </View>
+
+          {/* Metrics Skeleton */}
+          <View style={[styles.profileHeaderCard, { marginTop: spacing.md }]}>
+            <ShimmerSkeleton width={160} height={18} borderRadius={radii.xs} />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.md }}>
+              <ShimmerSkeleton width={60} height={40} borderRadius={radii.sm} />
+              <ShimmerSkeleton width={60} height={40} borderRadius={radii.sm} />
+              <ShimmerSkeleton width={60} height={40} borderRadius={radii.sm} />
+              <ShimmerSkeleton width={60} height={40} borderRadius={radii.sm} />
+            </View>
+          </View>
+
+          {/* Reports Grid Skeleton */}
+          <View style={{ marginTop: spacing.lg }}>
+            <ShimmerSkeleton width={180} height={20} borderRadius={radii.xs} style={{ marginBottom: spacing.md }} />
+            <SkeletonReportCard />
+            <SkeletonReportCard />
+          </View>
+        </ScrollView>
       </View>
     );
   }
@@ -157,11 +196,20 @@ export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenPr
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Profile Header Box */}
         <View style={styles.profileHeaderBox}>
-          <View style={styles.avatarLarge}>
-            <Text style={styles.avatarLargeText}>
-              {profile.publicName.substring(0, 2).toUpperCase()}
-            </Text>
-          </View>
+          {profile.photoUrl && !portraitError ? (
+            <Image
+              source={{ uri: profile.photoUrl }}
+              style={styles.portraitLarge}
+              resizeMode="cover"
+              onError={() => setPortraitError(true)}
+            />
+          ) : (
+            <View style={styles.avatarLarge}>
+              <Text style={styles.avatarLargeText}>
+                {profile.publicName.substring(0, 2).toUpperCase()}
+              </Text>
+            </View>
+          )}
 
           <Text style={styles.repNameLarge}>{profile.publicName}</Text>
           <Text style={styles.repDesignationLarge}>{profile.officialDesignation}</Text>
@@ -335,42 +383,113 @@ export const RepresentativeProfileScreen: React.FC<RepresentativeProfileScreenPr
             ))}
           </View>
 
-          {/* Reports List */}
+          {/* Reports Grid (Two-Column Responsive Image Grid) */}
           {reports.length === 0 ? (
             <View style={styles.emptyReportsBox}>
+              <Text style={styles.emptyReportsIcon}>📭</Text>
+              <Text style={styles.emptyReportsTitle}>No reports in this category</Text>
               <Text style={styles.emptyReportsText}>
-                No reports found in this section for {profile.jurisdictionName}.
+                There are no reports recorded with status {activeTab} for {profile.jurisdictionName}.
               </Text>
             </View>
           ) : (
-            reports.map((report) => (
-              <TouchableOpacity
-                key={report.id}
-                style={styles.reportCard}
-                activeOpacity={0.8}
-                onPress={() => onSelectReport(report.id)}
-              >
-                <View style={styles.reportCardTop}>
-                  <Text style={styles.reportCategoryBadge}>{report.category}</Text>
-                  <StatusBadge status={report.status} />
-                </View>
+            <View style={styles.reportsGrid}>
+              {reports.map((report) => {
+                const primaryMedia = report.media && report.media.length > 0 ? report.media[0] : null;
+                const photoUrl = primaryMedia?.secureUrl || primaryMedia?.url;
+                const hasImage = Boolean(photoUrl && !reportImageErrorMap[report.id]);
+                const hasResolvedEvidence = Boolean(
+                  report.status === 'RESOLVED' &&
+                    report.resolutionEvidenceMedia &&
+                    report.resolutionEvidenceMedia.length > 0
+                );
 
-                <Text style={styles.reportTitle} numberOfLines={2}>
-                  {report.title}
-                </Text>
+                const getCategoryIcon = (cat: string) => {
+                  switch (String(cat).toUpperCase()) {
+                    case 'POTHOLE':
+                      return '🕳️';
+                    case 'STREETLIGHT':
+                      return '💡';
+                    case 'GARBAGE':
+                      return '🗑️';
+                    case 'WATER':
+                      return '🚰';
+                    case 'DRAINAGE':
+                      return '🌊';
+                    case 'PUBLIC_SAFETY':
+                      return '🛡️';
+                    default:
+                      return '📋';
+                  }
+                };
 
-                <Text style={styles.reportLocationText} numberOfLines={1}>
-                  📍 {report.locationDescription || 'Location verified'}
-                </Text>
+                return (
+                  <TouchableOpacity
+                    key={report.id}
+                    style={styles.gridCard}
+                    activeOpacity={0.85}
+                    onPress={() => onSelectReport(report.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Report: ${report.title}, status: ${report.status}`}
+                  >
+                    {/* Top Thumbnail or Designed Category Fallback */}
+                    <View style={styles.gridImageContainer}>
+                      {hasImage ? (
+                        <Image
+                          source={{ uri: photoUrl! }}
+                          style={styles.gridImage}
+                          resizeMode="cover"
+                          onError={() =>
+                            setReportImageErrorMap((prev) => ({ ...prev, [report.id]: true }))
+                          }
+                        />
+                      ) : (
+                        <View style={styles.gridImagePlaceholder}>
+                          <Text style={styles.gridPlaceholderIcon}>
+                            {getCategoryIcon(report.category)}
+                          </Text>
+                          <Text style={styles.gridPlaceholderLabel}>
+                            {report.category || 'Civic Issue'}
+                          </Text>
+                        </View>
+                      )}
 
-                <View style={styles.reportCardFooter}>
-                  <Text style={styles.reportDate}>
-                    {new Date(report.createdAt).toLocaleDateString()}
-                  </Text>
-                  <Text style={styles.openReportLink}>View Details →</Text>
-                </View>
-              </TouchableOpacity>
-            ))
+                      {/* Floating Status & Resolved Badges */}
+                      <View style={styles.floatingStatusBadge}>
+                        <StatusBadge status={report.status} />
+                      </View>
+
+                      {hasResolvedEvidence && (
+                        <View style={styles.resolvedPhotoIndicator}>
+                          <Text style={styles.resolvedPhotoText}>✓ Solved w/ Photo</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Card Body */}
+                    <View style={styles.gridCardBody}>
+                      <View style={styles.gridCategoryRow}>
+                        <Text style={styles.gridCategoryBadge}>{report.category}</Text>
+                        <Text style={styles.gridDateText}>
+                          {new Date(report.createdAt).toLocaleDateString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </Text>
+                      </View>
+
+                      <Text style={styles.gridReportTitle} numberOfLines={2}>
+                        {report.title}
+                      </Text>
+
+                      <Text style={styles.gridReportLocation} numberOfLines={1}>
+                        📍 {report.locationDescription || 'Verified Location'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           )}
         </View>
       </ScrollView>
@@ -446,10 +565,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.cardBackground,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: colors.borderSubtle,
   },
   backButton: {
     paddingVertical: spacing.xs,
@@ -457,7 +577,7 @@ const styles = StyleSheet.create({
   backText: {
     color: colors.primary,
     fontSize: typography.sizes.md,
-    fontWeight: typography.weights.medium,
+    fontWeight: typography.weights.semibold,
   },
   navTitle: {
     fontSize: typography.sizes.md,
@@ -466,12 +586,12 @@ const styles = StyleSheet.create({
     maxWidth: 180,
   },
   claimButton: {
-    backgroundColor: '#EEF2FF',
+    backgroundColor: colors.primaryLight,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 6,
+    borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: '#D4E2FC',
   },
   claimButtonText: {
     color: colors.primary,
@@ -482,25 +602,53 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.md,
   },
-  profileHeaderBox: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
+  profileHeaderCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
+    padding: spacing.lg,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  profileHeaderBox: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
     alignItems: 'center',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  portraitLarge: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: colors.borderSubtle,
+    marginBottom: spacing.xs,
+    borderWidth: 2,
+    borderColor: colors.primary,
   },
   avatarLarge: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#E2E8F0',
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.xs,
+    borderWidth: 2,
+    borderColor: '#D4E2FC',
   },
   avatarLargeText: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: typography.weights.bold,
     color: colors.primary,
   },
@@ -512,22 +660,24 @@ const styles = StyleSheet.create({
   },
   repDesignationLarge: {
     fontSize: typography.sizes.sm,
-    color: colors.textSecondary,
-    fontWeight: typography.weights.medium,
+    color: colors.primary,
+    fontWeight: typography.weights.semibold,
     marginTop: 2,
     textAlign: 'center',
   },
   jurisdictionBadge: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: colors.surfaceMuted,
     paddingHorizontal: 12,
     paddingVertical: 4,
-    borderRadius: 16,
+    borderRadius: radii.pill,
     marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   jurisdictionBadgeText: {
     fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
+    fontWeight: typography.weights.semibold,
+    color: colors.textSecondary,
   },
   metaPillsRow: {
     flexDirection: 'row',
@@ -537,10 +687,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pillParty: {
-    backgroundColor: '#EEF2FF',
+    backgroundColor: colors.primaryLight,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 4,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: '#D4E2FC',
   },
   pillPartyText: {
     fontSize: 11,
@@ -548,55 +700,62 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   pillTerm: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: '#EDFDF5',
+    borderColor: '#B9F1D4',
+    borderWidth: 1,
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 4,
+    borderRadius: radii.pill,
   },
   pillTermText: {
     fontSize: 11,
-    fontWeight: typography.weights.medium,
-    color: '#15803D',
+    fontWeight: typography.weights.semibold,
+    color: colors.success,
   },
   pillVerified: {
-    backgroundColor: '#F0FDF4',
+    backgroundColor: '#EDFDF5',
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 4,
+    borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: '#BBF7D0',
+    borderColor: '#B9F1D4',
   },
   pillVerifiedText: {
     fontSize: 11,
     fontWeight: typography.weights.bold,
-    color: '#166534',
+    color: colors.success,
   },
   pillFlagged: {
-    backgroundColor: '#FFF7ED',
-    borderColor: '#FFEDD5',
+    backgroundColor: '#FEF9C3',
+    borderColor: '#FDE047',
   },
   pillFlaggedText: {
-    color: '#9A3412',
+    color: colors.warning,
   },
   pillPublicRecord: {
-    backgroundColor: '#F8FAFC',
-    borderColor: '#E2E8F0',
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.borderSubtle,
   },
   pillPublicRecordText: {
-    color: '#475569',
+    color: colors.textSecondary,
   },
   lastVerifiedText: {
     fontSize: 10,
-    color: colors.textSecondary,
+    color: colors.textMuted,
     marginTop: spacing.sm,
     textAlign: 'center',
   },
   accountabilityBox: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   cardHeading: {
     fontSize: typography.sizes.md,
@@ -612,9 +771,11 @@ const styles = StyleSheet.create({
   metricGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 8,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
     padding: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   metricItem: {
     alignItems: 'center',
@@ -638,7 +799,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingTop: spacing.xs,
     borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+    borderTopColor: colors.borderSubtle,
   },
   resolutionRateLabel: {
     fontSize: typography.sizes.sm,
@@ -651,11 +812,16 @@ const styles = StyleSheet.create({
     color: colors.success,
   },
   aboutBox: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   biographyText: {
     fontSize: typography.sizes.sm,
@@ -667,7 +833,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     paddingTop: spacing.xs,
     borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+    borderTopColor: colors.borderSubtle,
     gap: 4,
   },
   contactLine: {
@@ -680,10 +846,10 @@ const styles = StyleSheet.create({
   provenanceBox: {
     marginTop: spacing.md,
     padding: spacing.sm,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 8,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: colors.borderSubtle,
   },
   provenanceTitle: {
     fontSize: 11,
@@ -705,11 +871,16 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   reportsSection: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   filterTabsRow: {
     flexDirection: 'row',
@@ -720,11 +891,14 @@ const styles = StyleSheet.create({
   filterTab: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 14,
-    backgroundColor: '#F1F5F9',
+    borderRadius: radii.pill,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
   },
   filterTabActive: {
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   filterTabText: {
     fontSize: 11,
@@ -736,76 +910,146 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.bold,
   },
   emptyReportsBox: {
-    padding: spacing.lg,
+    padding: spacing.xl,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyReportsIcon: {
+    fontSize: 32,
+    marginBottom: spacing.xs,
+  },
+  emptyReportsTitle: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    marginBottom: 4,
   },
   emptyReportsText: {
     fontSize: typography.sizes.xs,
     color: colors.textSecondary,
     textAlign: 'center',
+    maxWidth: 240,
   },
-  reportCard: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 8,
+  reportsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: spacing.sm,
+  },
+  gridCard: {
+    width: '48.5%',
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.sm,
-    marginBottom: spacing.xs,
+    overflow: 'hidden',
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  reportCardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  gridImageContainer: {
+    width: '100%',
+    height: 110,
+    backgroundColor: colors.surfaceMuted,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+  },
+  gridImagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  reportCategoryBadge: {
+  gridPlaceholderIcon: {
+    fontSize: 28,
+    marginBottom: 2,
+  },
+  gridPlaceholderLabel: {
     fontSize: 10,
     fontWeight: typography.weights.bold,
-    color: colors.primary,
-    backgroundColor: '#EEF2FF',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+  },
+  floatingStatusBadge: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    transform: [{ scale: 0.85 }],
+    transformOrigin: 'top left',
+  },
+  resolvedPhotoIndicator: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    backgroundColor: 'rgba(22, 134, 91, 0.9)',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: radii.sm,
   },
-  reportTitle: {
-    fontSize: typography.sizes.sm,
+  resolvedPhotoText: {
+    color: '#FFFFFF',
+    fontSize: 9,
     fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
-    marginTop: 4,
   },
-  reportLocationText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 2,
+  gridCardBody: {
+    padding: spacing.xs,
+    gap: 2,
   },
-  reportCardFooter: {
+  gridCategoryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 6,
-    paddingTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
+    marginTop: 2,
   },
-  reportDate: {
-    fontSize: 10,
-    color: colors.textSecondary,
-  },
-  openReportLink: {
-    fontSize: 11,
+  gridCategoryBadge: {
+    fontSize: 9,
     fontWeight: typography.weights.bold,
     color: colors.primary,
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+    textTransform: 'uppercase',
+  },
+  gridDateText: {
+    fontSize: 9,
+    color: colors.textMuted,
+  },
+  gridReportTitle: {
+    fontSize: typography.sizes.xs,
+    fontWeight: typography.weights.bold,
+    color: colors.textPrimary,
+    lineHeight: 14,
+    marginTop: 2,
+  },
+  gridReportLocation: {
+    fontSize: 9,
+    color: colors.textSecondary,
+    marginTop: 1,
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(23, 32, 51, 0.6)',
     justifyContent: 'center',
     padding: spacing.lg,
   },
   modalCard: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
     padding: spacing.lg,
     gap: spacing.sm,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
   },
   modalTitle: {
     fontSize: typography.sizes.lg,
@@ -824,13 +1068,13 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   textInput: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 8,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.md,
     paddingHorizontal: spacing.sm,
     paddingVertical: 8,
     fontSize: typography.sizes.sm,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.borderSubtle,
     color: colors.textPrimary,
   },
   modalActionRow: {

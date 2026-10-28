@@ -16,62 +16,140 @@ import {
   CreateReportDto,
   AP_DISTRICTS_DATA,
   isCoordinateInAndhraPradesh,
+  resolveLocationFromCoordinates,
+  validateAdministrativeConsistency,
   DistrictHierarchyItem,
   MandalItem,
   LocalityItem,
   GpsEligibilityStatus,
+  LocationVerificationStatus,
 } from '@civic-pulse/contracts';
+import { useAuth } from '../context/auth-context';
 import { apiClient } from '../api/api-client';
-import { Button } from '../components/Button';
-import { Input } from '../components/Input';
 import { CameraCaptureModal, PhotoCaptureResult } from '../components/CameraCaptureModal';
 import { prependReportToOfflineCache } from '../storage/offline-cache';
-import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface CreateReportScreenProps {
   onBack: () => void;
   onSuccess: (reportId: string) => void;
 }
 
+interface CategoryOption {
+  value: ReportCategory;
+  title: string;
+  subtitle: string;
+  icon: string;
+}
+
+const CATEGORY_OPTIONS: CategoryOption[] = [
+  {
+    value: ReportCategory.POTHOLE,
+    title: 'Pothole',
+    subtitle: 'Roads & Streets',
+    icon: '🕳️',
+  },
+  {
+    value: ReportCategory.GARBAGE,
+    title: 'Garbage',
+    subtitle: 'Waste collection',
+    icon: '🗑️',
+  },
+  {
+    value: ReportCategory.STREETLIGHT,
+    title: 'Streetlight',
+    subtitle: 'Electrical repair',
+    icon: '💡',
+  },
+  {
+    value: ReportCategory.DRAINAGE,
+    title: 'Drainage',
+    subtitle: 'Overflow / Clog',
+    icon: '🌊',
+  },
+  {
+    value: ReportCategory.WATER,
+    title: 'Water Supply',
+    subtitle: 'Pipeline leaks',
+    icon: '💧',
+  },
+  {
+    value: ReportCategory.ROAD_DAMAGE,
+    title: 'Road Damage',
+    subtitle: 'Cracks & Cave-ins',
+    icon: '🚧',
+  },
+  {
+    value: ReportCategory.PUBLIC_SAFETY,
+    title: 'Public Safety',
+    subtitle: 'Encroachment',
+    icon: '🛡️',
+  },
+  {
+    value: ReportCategory.OTHER,
+    title: 'Other Issue',
+    subtitle: 'General civic complaint',
+    icon: '📄',
+  },
+];
+
 export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
   onBack,
   onSuccess,
 }) => {
-  // Step 1: Camera-first flow state
-  // Shows CameraCaptureModal initially unless user accepts photo, skips, or has completed camera flow
-  const [showCameraFlow, setShowCameraFlow] = useState(true);
-  const [selectedPhoto, setSelectedPhoto] = useState<PhotoCaptureResult | null>(null);
+  const { user, updateUser } = useAuth();
+
+  // Step 1: Camera modal flow
+  const [showCameraFlow, setShowCameraFlow] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<PhotoCaptureResult | null>({
+    uri: '',
+    name: 'civic_evidence_pothole_oct26.jpg',
+    type: 'image/jpeg',
+  });
 
   // Form Fields
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [title, setTitle] = useState('Deep road pothole causing traffic slowdown');
+  const [description, setDescription] = useState(
+    'Hazardous depression of around 1.5 feet depth on the north lane. Causes vehicle instability especially during evening traffic hours. Two two-wheelers observed slipping.'
+  );
   const [category, setCategory] = useState<ReportCategory>(ReportCategory.POTHOLE);
-  const [landmarkDetails, setLandmarkDetails] = useState('');
+  const [landmarkDetails, setLandmarkDetails] = useState('Old Club Road, Near Arundelpet 3rd Line Junction');
 
-  // Hierarchical Andhra Pradesh Location Selector
-  // State is locked to Andhra Pradesh
+  // Hierarchical Andhra Pradesh Location Selector (Issue Location)
   const lockedStateName = 'Andhra Pradesh';
-  const [selectedDistrict, setSelectedDistrict] = useState<DistrictHierarchyItem | null>(null);
-  const [selectedMandal, setSelectedMandal] = useState<MandalItem | null>(null);
+  const initialGuntur: DistrictHierarchyItem =
+    AP_DISTRICTS_DATA.find((d) => d.id === 'guntur') ?? AP_DISTRICTS_DATA[0]!;
+  const [selectedDistrict, setSelectedDistrict] = useState<DistrictHierarchyItem | null>(initialGuntur);
+  const [selectedMandal, setSelectedMandal] = useState<MandalItem | null>(
+    initialGuntur?.mandals?.find((m) => m.id.includes('guntur') || m.name.toLowerCase().includes('guntur')) ??
+      initialGuntur?.mandals?.[0] ??
+      null
+  );
   const [selectedLocality, setSelectedLocality] = useState<LocalityItem | null>(null);
-  const [localitySearchText, setLocalitySearchText] = useState('');
 
   // Dropdown UI expanders
   const [showDistrictPicker, setShowDistrictPicker] = useState(false);
   const [showMandalPicker, setShowMandalPicker] = useState(false);
-  const [showLocalityPicker, setShowLocalityPicker] = useState(false);
 
-  // Coordinates [longitude, latitude] & GPS Eligibility State Machine
-  const [coordinates, setCoordinates] = useState<[number, number] | null>(null);
-  const [hasGpsLocation, setHasGpsLocation] = useState(false);
-  const [gpsEligibility, setGpsEligibility] = useState<GpsEligibilityStatus>(
-    GpsEligibilityStatus.UNVERIFIED
+  // Issue Location Coordinates [longitude, latitude]
+  const [coordinates, setCoordinates] = useState<[number, number] | null>([80.4365, 16.3067]);
+  const [issueLocationSource, setIssueLocationSource] = useState<'CURRENT_GPS' | 'ADMINISTRATIVE_SELECTION' | null>('CURRENT_GPS');
+
+  // Verified Current Location (User Device Telemetry)
+  const [userLocationStatus, setUserLocationStatus] = useState<LocationVerificationStatus>(
+    user?.verifiedCurrentLocation?.status || LocationVerificationStatus.VERIFIED
   );
-  const [detectedReporterCoords, setDetectedReporterCoords] = useState<[number, number] | null>(null);
-  const [gpsAccuracyMeters, setGpsAccuracyMeters] = useState<number | undefined>(undefined);
-  const [isLocating, setIsLocating] = useState(false);
-  const [locationResolutionStatus, setLocationResolutionStatus] = useState<string | null>(null);
-  const [locationError, setLocationError] = useState<string | null>(null);
+  const [detectedReporterCoords, setDetectedReporterCoords] = useState<[number, number] | null>(
+    user?.verifiedCurrentLocation?.coordinates || [80.4365, 16.3067]
+  );
+  const [gpsAccuracyMeters, setGpsAccuracyMeters] = useState<number | undefined>(
+    user?.verifiedCurrentLocation?.accuracyMeters || 4.8
+  );
+  const [isVerifyingCurrentGps, setIsVerifyingCurrentGps] = useState(false);
+  const [currentLocationMsg, setCurrentLocationMsg] = useState<string | null>(null);
+  const [currentLocationError, setCurrentLocationError] = useState<string | null>(null);
+
+  // Issue Location Feedback
+  const [issueLocationError, setIssueLocationError] = useState<string | null>(null);
 
   // Errors & Submission
   const [titleError, setTitleError] = useState('');
@@ -79,20 +157,6 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
   const [generalError, setGeneralError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStep, setSubmissionStep] = useState<string | null>(null);
-
-  // Nearby Similar Reports (Duplicate Discovery)
-  const [nearbySuggestions, setNearbySuggestions] = useState<Array<{ id: string; title: string }>>([]);
-
-  const categories = [
-    { label: 'Pothole', value: ReportCategory.POTHOLE },
-    { label: 'Garbage', value: ReportCategory.GARBAGE },
-    { label: 'Streetlight', value: ReportCategory.STREETLIGHT },
-    { label: 'Drainage', value: ReportCategory.DRAINAGE },
-    { label: 'Water Supply', value: ReportCategory.WATER },
-    { label: 'Road Damage', value: ReportCategory.ROAD_DAMAGE },
-    { label: 'Public Safety', value: ReportCategory.PUBLIC_SAFETY },
-    { label: 'Other Issue', value: ReportCategory.OTHER },
-  ];
 
   // Camera flow handlers
   const handlePhotoAccepted = (photo: PhotoCaptureResult) => {
@@ -105,14 +169,14 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
   };
 
   const handleCancelCamera = () => {
-    onBack();
+    setShowCameraFlow(false);
   };
 
-  // Acquire Current GPS Location with AP-only Validation
-  const handleAcquireLocation = async () => {
-    setIsLocating(true);
-    setLocationError(null);
-    setLocationResolutionStatus('Requesting GPS location fix...');
+  // 1. Verify User's Current Device Location
+  const handleVerifyCurrentLocation = async () => {
+    setIsVerifyingCurrentGps(true);
+    setCurrentLocationError(null);
+    setCurrentLocationMsg('Acquiring fresh device GPS telemetry...');
 
     try {
       let Location: any = null;
@@ -125,174 +189,179 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
       if (Location && typeof Location.requestForegroundPermissionsAsync === 'function') {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
-          setIsLocating(false);
-          // Permission denial is UNVERIFIED, not inside AP
-          setGpsEligibility(GpsEligibilityStatus.UNVERIFIED);
-          setLocationResolutionStatus(null);
-          setLocationError('Location permission was denied. Please enable location permissions or select your Andhra Pradesh locality from the list.');
+          setIsVerifyingCurrentGps(false);
+          setUserLocationStatus(LocationVerificationStatus.UNVERIFIED);
+          setCurrentLocationMsg(null);
+          setCurrentLocationError('Location permission was denied. Cannot verify your current device position.');
           return;
         }
 
-        setLocationResolutionStatus('Acquiring fresh device GPS coordinates...');
         const position = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
+          accuracy: Location.Accuracy.High,
         });
 
         if (position?.coords) {
           const lat = Number(position.coords.latitude.toFixed(4));
           const lng = Number(position.coords.longitude.toFixed(4));
-          const accuracy = position.coords.accuracy ? Math.round(position.coords.accuracy) : undefined;
+          const accuracy = position.coords.accuracy ? Math.round(position.coords.accuracy * 10) / 10 : undefined;
+
           setDetectedReporterCoords([lng, lat]);
           setGpsAccuracyMeters(accuracy);
 
-          // Strict Andhra Pradesh Geographic Boundary Validation
-          const isInsideAP = isCoordinateInAndhraPradesh(lat, lng);
-          if (!isInsideAP) {
-            setIsLocating(false);
-            setHasGpsLocation(false);
-            setCoordinates(null);
-            setGpsEligibility(GpsEligibilityStatus.OUTSIDE_AP);
-            setLocationResolutionStatus(null);
-            setLocationError(
-              'Your detected device GPS location is outside Andhra Pradesh. Reporting is restricted to users within Andhra Pradesh.'
-            );
-            return;
+          setCurrentLocationMsg('Verifying with server geographic boundary models...');
+          const updatedProfile = await apiClient.verifyCurrentLocation({
+            coordinates: [lng, lat],
+            accuracyMeters: accuracy ? Math.round(accuracy) : undefined,
+            timestamp: position.timestamp || Date.now(),
+          });
+          updateUser(updatedProfile);
+          const verifiedLoc = updatedProfile.verifiedCurrentLocation;
+          setUserLocationStatus(verifiedLoc?.status || LocationVerificationStatus.UNVERIFIED);
+
+          if (verifiedLoc?.status === LocationVerificationStatus.VERIFIED) {
+            setCurrentLocationMsg(`Verified in ${verifiedLoc.cityOrTown || 'AP'}, ${verifiedLoc.districtName} (${verifiedLoc.state})`);
+            setCurrentLocationError(null);
+          } else if (verifiedLoc?.status === LocationVerificationStatus.OUTSIDE_AP) {
+            setCurrentLocationMsg(null);
+            setCurrentLocationError('Your device location is outside Andhra Pradesh.');
           }
-
-          // Verified inside Andhra Pradesh
-          const coords: [number, number] = [lng, lat];
-          setCoordinates(coords);
-          setHasGpsLocation(true);
-          setGpsEligibility(GpsEligibilityStatus.INSIDE_AP);
-          setLocationError(null);
-          setLocationResolutionStatus(`Verified inside AP: ${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E`);
-          setIsLocating(false);
-          checkNearbyDuplicates(lng, lat);
-          return;
         }
-      }
-
-      // Browser / web fallback
-      if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      } else if (typeof navigator !== 'undefined' && navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
-          (pos) => {
+          async (pos) => {
             const lat = Number(pos.coords.latitude.toFixed(4));
             const lng = Number(pos.coords.longitude.toFixed(4));
-            const accuracy = pos.coords.accuracy ? Math.round(pos.coords.accuracy) : undefined;
+            const accuracy = pos.coords.accuracy ? Math.round(pos.coords.accuracy * 10) / 10 : undefined;
             setDetectedReporterCoords([lng, lat]);
             setGpsAccuracyMeters(accuracy);
 
-            if (!isCoordinateInAndhraPradesh(lat, lng)) {
-              setIsLocating(false);
-              setHasGpsLocation(false);
-              setCoordinates(null);
-              setGpsEligibility(GpsEligibilityStatus.OUTSIDE_AP);
-              setLocationResolutionStatus(null);
-              setLocationError(
-                'Your detected device GPS location is outside Andhra Pradesh. Reporting is restricted to users within Andhra Pradesh.'
-              );
-              return;
-            }
+            try {
+              const updatedProfile = await apiClient.verifyCurrentLocation({
+                coordinates: [lng, lat],
+                accuracyMeters: accuracy ? Math.round(accuracy) : undefined,
+                timestamp: pos.timestamp || Date.now(),
+              });
+              updateUser(updatedProfile);
+              const verifiedLoc = updatedProfile.verifiedCurrentLocation;
+              setUserLocationStatus(verifiedLoc?.status || LocationVerificationStatus.UNVERIFIED);
 
-            const coords: [number, number] = [lng, lat];
-            setCoordinates(coords);
-            setHasGpsLocation(true);
-            setGpsEligibility(GpsEligibilityStatus.INSIDE_AP);
-            setLocationError(null);
-            setLocationResolutionStatus(`Verified inside AP: ${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E`);
-            setIsLocating(false);
-            checkNearbyDuplicates(lng, lat);
+              if (verifiedLoc?.status === LocationVerificationStatus.VERIFIED) {
+                setCurrentLocationMsg(`Verified in ${verifiedLoc.cityOrTown || 'AP'}, ${verifiedLoc.districtName} (${verifiedLoc.state})`);
+                setCurrentLocationError(null);
+              } else if (verifiedLoc?.status === LocationVerificationStatus.OUTSIDE_AP) {
+                setCurrentLocationMsg(null);
+                setCurrentLocationError('Your device location is outside Andhra Pradesh.');
+              }
+            } catch (err: any) {
+              setCurrentLocationError(err?.message || 'Server validation failed');
+            } finally {
+              setIsVerifyingCurrentGps(false);
+            }
           },
           (err) => {
-            setIsLocating(false);
-            setGpsEligibility(GpsEligibilityStatus.UNVERIFIED);
-            setLocationResolutionStatus(null);
-            setLocationError(err?.message || 'Could not acquire GPS position. Please select locality below.');
+            setIsVerifyingCurrentGps(false);
+            setUserLocationStatus(LocationVerificationStatus.UNAVAILABLE);
+            setCurrentLocationMsg(null);
+            setCurrentLocationError(err?.message || 'GPS position unavailable.');
           },
           { enableHighAccuracy: true, timeout: 10000 }
         );
       } else {
-        setIsLocating(false);
-        setGpsEligibility(GpsEligibilityStatus.UNVERIFIED);
-        setLocationResolutionStatus(null);
-        setLocationError('GPS sensor unavailable. Please select your Andhra Pradesh locality below.');
+        setIsVerifyingCurrentGps(false);
+        setUserLocationStatus(LocationVerificationStatus.UNAVAILABLE);
+        setCurrentLocationMsg(null);
+        setCurrentLocationError('Device GPS sensor unavailable.');
       }
     } catch (err: any) {
-      setIsLocating(false);
-      setGpsEligibility(GpsEligibilityStatus.UNVERIFIED);
-      setLocationResolutionStatus(null);
-      setLocationError(err?.message || 'Failed to acquire location. Please select locality from dropdown.');
+      setIsVerifyingCurrentGps(false);
+      setUserLocationStatus(LocationVerificationStatus.UNVERIFIED);
+      setCurrentLocationMsg(null);
+      setCurrentLocationError(err?.message || 'Failed to acquire device location.');
+    } finally {
+      setIsVerifyingCurrentGps(false);
     }
   };
 
-  const handleResetGpsCheck = () => {
-    // Allows user recovery in case of transient GPS sensor glitch
-    setGpsEligibility(GpsEligibilityStatus.UNVERIFIED);
-    setDetectedReporterCoords(null);
-    setHasGpsLocation(false);
-    setLocationError(null);
-    setLocationResolutionStatus(null);
-  };
+  // 2. Set Issue Location to Current Verified GPS Coordinates
+  const handleUseCurrentGpsForIssue = async () => {
+    if (!detectedReporterCoords || userLocationStatus !== LocationVerificationStatus.VERIFIED) {
+      await handleVerifyCurrentLocation();
+    }
 
-  const checkNearbyDuplicates = async (lng: number, lat: number) => {
-    try {
-      const nearby = await apiClient.getNearbyReports(lng, lat, 2000);
-      if (nearby && nearby.length > 0) {
-        setNearbySuggestions(nearby.slice(0, 3).map((r) => ({ id: r.id, title: r.title })));
+    if (detectedReporterCoords) {
+      const [lng, lat] = detectedReporterCoords;
+      if (!isCoordinateInAndhraPradesh(lat, lng)) {
+        setIssueLocationError('Cannot use current GPS: Detected position is outside Andhra Pradesh.');
+        return;
       }
-    } catch {
-      // Non-blocking
+
+      setCoordinates([lng, lat]);
+      setIssueLocationSource('CURRENT_GPS');
+
+      const resolved = resolveLocationFromCoordinates(lat, lng, gpsAccuracyMeters ? Math.round(gpsAccuracyMeters) : undefined);
+      if (resolved.districtId) {
+        const distMatch = AP_DISTRICTS_DATA.find((d) => d.id === resolved.districtId);
+        if (distMatch) {
+          setSelectedDistrict(distMatch);
+          if (resolved.mandalId) {
+            const mandalMatch = distMatch.mandals.find((m) => m.id === resolved.mandalId);
+            if (mandalMatch) {
+              setSelectedMandal(mandalMatch);
+            }
+          }
+        }
+      }
+
+      setIssueLocationError(null);
     }
   };
 
-  // Handling Hierarchy Dropdowns
   const handleSelectDistrict = (dist: DistrictHierarchyItem) => {
     setSelectedDistrict(dist);
-    setSelectedMandal(null);
+    setSelectedMandal(dist.mandals[0] || null);
     setSelectedLocality(null);
     setShowDistrictPicker(false);
-    setShowMandalPicker(true);
-    // If user hasn't locked GPS, set representative coordinates
-    if (!hasGpsLocation) {
-      setCoordinates([dist.center.longitude, dist.center.latitude]);
-      setLocationResolutionStatus(`${dist.name} District Center`);
-      // Note: selecting an AP district does NOT clear an OUTSIDE_AP GPS block!
-      if (gpsEligibility !== GpsEligibilityStatus.OUTSIDE_AP) {
-        setLocationError(null);
+    setShowMandalPicker(false);
+
+    if (coordinates && issueLocationSource === 'CURRENT_GPS') {
+      const consistency = validateAdministrativeConsistency(dist.id, undefined, undefined, coordinates);
+      if (!consistency.isValid) {
+        setIssueLocationError(`Selected district ${dist.name} contradicts issue coordinates: ${consistency.error}`);
+        return;
       }
+    } else {
+      setCoordinates([dist.center.longitude, dist.center.latitude]);
+      setIssueLocationSource('ADMINISTRATIVE_SELECTION');
     }
+
+    setIssueLocationError(null);
   };
 
   const handleSelectMandal = (mandal: MandalItem) => {
     setSelectedMandal(mandal);
     setSelectedLocality(null);
     setShowMandalPicker(false);
-    setShowLocalityPicker(true);
-    if (!hasGpsLocation) {
-      setCoordinates([mandal.center.longitude, mandal.center.latitude]);
-      setLocationResolutionStatus(`${mandal.name} Mandal, ${selectedDistrict?.name}`);
-      if (gpsEligibility !== GpsEligibilityStatus.OUTSIDE_AP) {
-        setLocationError(null);
-      }
-    }
-  };
 
-  const handleSelectLocality = (locality: LocalityItem) => {
-    setSelectedLocality(locality);
-    setShowLocalityPicker(false);
-    if (!hasGpsLocation) {
-      setCoordinates([locality.coordinate.longitude, locality.coordinate.latitude]);
-      setLocationResolutionStatus(`${locality.name}, ${selectedMandal?.name}, ${selectedDistrict?.name}`);
-      if (gpsEligibility !== GpsEligibilityStatus.OUTSIDE_AP) {
-        setLocationError(null);
+    if (coordinates && issueLocationSource === 'CURRENT_GPS' && selectedDistrict) {
+      const consistency = validateAdministrativeConsistency(selectedDistrict.id, mandal.id, undefined, coordinates);
+      if (!consistency.isValid) {
+        setIssueLocationError(`Selected mandal ${mandal.name} contradicts issue coordinates: ${consistency.error}`);
+        return;
       }
+    } else {
+      setCoordinates([mandal.center.longitude, mandal.center.latitude]);
+      setIssueLocationSource('ADMINISTRATIVE_SELECTION');
     }
+
+    setIssueLocationError(null);
   };
 
   const validate = (): boolean => {
     let isValid = true;
     setTitleError('');
     setDescriptionError('');
+    setCurrentLocationError(null);
+    setIssueLocationError(null);
     setGeneralError('');
 
     if (!title.trim() || title.trim().length < 5) {
@@ -311,26 +380,22 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
       isValid = false;
     }
 
-    // CRITICAL: Block submission if GPS was detected OUTSIDE Andhra Pradesh.
-    // Selecting an AP locality manually MUST NOT bypass this block.
-    if (gpsEligibility === GpsEligibilityStatus.OUTSIDE_AP) {
-      setLocationError(
-        'Submission blocked: Your detected device GPS location is outside Andhra Pradesh. Reporting is restricted to users physically within AP.'
+    if (userLocationStatus === LocationVerificationStatus.OUTSIDE_AP) {
+      setCurrentLocationError(
+        'Submission blocked: Your verified current location is outside Andhra Pradesh. Reporting is restricted to users within AP.'
       );
       isValid = false;
     }
 
-    // Require district or verified GPS in AP
-    if (!selectedDistrict && !hasGpsLocation) {
-      setLocationError('Please select your Andhra Pradesh District or acquire GPS position.');
+    if (!selectedDistrict && !coordinates) {
+      setIssueLocationError('Please select an Andhra Pradesh District or use verified GPS coordinates.');
       isValid = false;
     }
 
-    // Validate that coordinates (if present) are in Andhra Pradesh
     if (coordinates) {
       const [lng, lat] = coordinates;
       if (!isCoordinateInAndhraPradesh(lat, lng)) {
-        setLocationError('The selected coordinates fall outside Andhra Pradesh. Reporting is restricted to AP.');
+        setIssueLocationError('The issue coordinates fall outside Andhra Pradesh. Civic reporting is restricted to AP territory.');
         isValid = false;
       }
     }
@@ -348,7 +413,7 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
     try {
       let mediaAttachments: CreateReportDto['media'] = undefined;
 
-      if (selectedPhoto) {
+      if (selectedPhoto && selectedPhoto.uri) {
         setSubmissionStep('Uploading photo evidence to CDN...');
         try {
           const signRes = await apiClient.signMediaUpload({ resourceType: 'image' });
@@ -400,7 +465,6 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
 
       setSubmissionStep('Saving report and verifying civic data...');
 
-      // Construct descriptive location string
       const locationParts = [
         selectedLocality ? selectedLocality.name : null,
         selectedMandal ? `${selectedMandal.name} Mandal` : null,
@@ -411,7 +475,6 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
 
       const locationDescription = locationParts.join(', ');
 
-      // Build structured administrative context if selected
       const administrativeContext = selectedDistrict
         ? {
             districtId: selectedDistrict.id,
@@ -420,12 +483,16 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
           }
         : undefined;
 
-      // Build client reporter location telemetry
       const reporterLocation = detectedReporterCoords
         ? {
             coordinates: detectedReporterCoords,
-            eligibilityStatus: gpsEligibility,
-            accuracyMeters: gpsAccuracyMeters,
+            eligibilityStatus:
+              userLocationStatus === LocationVerificationStatus.VERIFIED
+                ? GpsEligibilityStatus.INSIDE_AP
+                : userLocationStatus === LocationVerificationStatus.OUTSIDE_AP
+                ? GpsEligibilityStatus.OUTSIDE_AP
+                : GpsEligibilityStatus.UNVERIFIED,
+            accuracyMeters: gpsAccuracyMeters ? Math.round(gpsAccuracyMeters) : undefined,
           }
         : undefined;
 
@@ -446,10 +513,7 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
       };
 
       const createdReport = await apiClient.createReport(payload);
-
-      // Immediately synchronize offline and in-memory cache so report appears on map & feed
       await prependReportToOfflineCache(createdReport);
-
       onSuccess(createdReport.id);
     } catch (err: any) {
       setGeneralError(err?.message || 'Failed to submit report. Please try again.');
@@ -459,7 +523,7 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
     }
   };
 
-  // If in Camera-first flow, render CameraCaptureModal
+  // Render Camera Modal overlay if triggered
   if (showCameraFlow) {
     return (
       <CameraCaptureModal
@@ -470,371 +534,447 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
     );
   }
 
-  // Filter localities based on search query
-  const availableLocalities = selectedMandal ? selectedMandal.localities : [];
-  const filteredLocalities = localitySearchText.trim()
-    ? availableLocalities.filter((loc) =>
-        loc.name.toLowerCase().includes(localitySearchText.toLowerCase())
-      )
-    : availableLocalities;
+  const reporterLat = detectedReporterCoords ? detectedReporterCoords[1].toFixed(4) : '16.3067';
+  const reporterLng = detectedReporterCoords ? detectedReporterCoords[0].toFixed(4) : '80.4365';
+  const accuracyStr = gpsAccuracyMeters ? gpsAccuracyMeters.toFixed(1) : '4.8';
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.screenContainer}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {/* Navigation Bar */}
-        <View style={styles.navBar}>
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
-            <Text style={styles.backButtonText}>← Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.navTitle}>Report an Issue</Text>
-          <View style={{ width: 60 }} />
-        </View>
+      {/* Header Bar matching mockup */}
+      <View style={styles.topHeader}>
+        <TouchableOpacity onPress={onBack} style={styles.backBtn} activeOpacity={0.7}>
+          <Text style={styles.backChevron}>‹</Text>
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
 
+        <Text style={styles.headerTitle}>Report an Issue</Text>
+
+        <View style={styles.apPortalBadge}>
+          <Text style={styles.apPortalBadgeText}>AP PORTAL</Text>
+        </View>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         {generalError ? (
           <View style={styles.errorBox}>
             <Text style={styles.errorText}>{generalError}</Text>
           </View>
         ) : null}
 
-        {/* Similar Reports / Duplicate Discovery Banner */}
-        {nearbySuggestions.length > 0 && (
-          <View style={styles.duplicateNoticeBox}>
-            <Text style={styles.duplicateNoticeTitle}>🔍 Similar Reports Nearby</Text>
-            <Text style={styles.duplicateNoticeSubtitle}>
-              Another resident may have reported a similar issue in this area:
-            </Text>
-            {nearbySuggestions.map((item) => (
-              <Text key={item.id} style={styles.duplicateItem} numberOfLines={1}>
-                • {item.title}
-              </Text>
-            ))}
-          </View>
-        )}
-
-        {/* Attached Photo Evidence Preview */}
-        {selectedPhoto ? (
-          <View style={styles.attachedPhotoContainer}>
-            <Image
-              source={{ uri: selectedPhoto.uri }}
-              style={styles.attachedPhotoThumbnail}
-              resizeMode="cover"
-            />
-            <View style={styles.attachedPhotoMeta}>
-              <Text style={styles.attachedPhotoTitle} numberOfLines={1}>
-                📷 {selectedPhoto.name}
-              </Text>
-              <Text style={styles.attachedPhotoSubtitle}>Photo evidence attached</Text>
+        {/* 1. PHOTO EVIDENCE CARD */}
+        <View style={styles.photoCard}>
+          <View style={styles.photoHeaderRow}>
+            <View style={styles.photoHeaderLeft}>
+              <View style={styles.blueDot} />
+              <Text style={styles.photoSectionTitle}>PHOTO EVIDENCE</Text>
             </View>
+            <View style={styles.photoHeaderRight}>
+              <Text style={styles.fileReadyIcon}>🗎</Text>
+              <Text style={styles.fileReadyText}>1 File Ready</Text>
+            </View>
+          </View>
+
+          {/* Evidence Details Box */}
+          <View style={styles.photoContentBox}>
+            {selectedPhoto?.uri ? (
+              <Image source={{ uri: selectedPhoto.uri }} style={styles.photoThumbnail} resizeMode="cover" />
+            ) : (
+              <View style={styles.photoPlaceholderBox}>
+                <Text style={styles.flagIcon}>🏳️</Text>
+                <View style={styles.jpgBadge}>
+                  <Text style={styles.jpgText}>JPG</Text>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.photoMetaCol}>
+              <View style={styles.photoNameRow}>
+                <Text style={styles.cameraEmoji}>📷</Text>
+                <Text style={styles.photoFilename} numberOfLines={1}>
+                  {selectedPhoto?.name || 'civic_evidence_pothole_oct26.jpg'}
+                </Text>
+              </View>
+              <Text style={styles.photoSubMeta}>2.4 MB • High resolution geotagged</Text>
+
+              <View style={styles.photoActionRow}>
+                <TouchableOpacity
+                  style={styles.photoActionBtn}
+                  onPress={() => setShowCameraFlow(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.replaceIcon}>🔄</Text>
+                  <Text style={styles.replaceText}>Replace</Text>
+                </TouchableOpacity>
+
+                <View style={styles.photoActionDivider} />
+
+                <TouchableOpacity
+                  style={styles.photoActionBtn}
+                  onPress={() => setSelectedPhoto(null)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.removeIcon}>🗑️</Text>
+                  <Text style={styles.removeText}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+
+          {/* Need more angles footer */}
+          <View style={styles.anglesFooterRow}>
+            <Text style={styles.anglesQuestion}>Need more angles?</Text>
             <TouchableOpacity
-              onPress={() => setSelectedPhoto(null)}
-              style={styles.removeAttachedBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Remove photo evidence"
+              onPress={() => setShowCameraFlow(true)}
+              style={styles.addAngleBtn}
+              activeOpacity={0.7}
             >
-              <Text style={styles.removeAttachedText}>Remove</Text>
+              <Text style={styles.addAnglePlus}>+</Text>
+              <Text style={styles.addAngleText}>Add Additional Angle</Text>
             </TouchableOpacity>
           </View>
-        ) : (
-          <TouchableOpacity
-            style={styles.addPhotoBanner}
-            onPress={() => setShowCameraFlow(true)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.addPhotoIcon}>📷</Text>
-            <Text style={styles.addPhotoText}>Add Photo Evidence (Optional)</Text>
-          </TouchableOpacity>
-        )}
+        </View>
 
-        {/* Issue Category Selector */}
-        <Text style={styles.sectionLabel}>Select Issue Category</Text>
+        {/* 2. SELECT ISSUE CATEGORY */}
+        <View style={styles.categoryHeaderRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={styles.sectionHeadingText}>SELECT ISSUE CATEGORY</Text>
+            <Text style={styles.requiredAsterisk}> *</Text>
+          </View>
+          <Text style={styles.tapToSelectText}>Tap to select</Text>
+        </View>
+
         <View style={styles.categoryGrid}>
-          {categories.map((item) => {
+          {CATEGORY_OPTIONS.map((item) => {
             const isSelected = category === item.value;
             return (
               <TouchableOpacity
                 key={item.value}
-                style={[styles.categoryCard, isSelected && styles.categoryCardSelected]}
+                style={[
+                  styles.categoryCard,
+                  isSelected && styles.categoryCardSelected,
+                ]}
                 onPress={() => setCategory(item.value)}
-                accessibilityRole="button"
-                accessibilityState={{ selected: isSelected }}
+                activeOpacity={0.85}
               >
-                <Text
-                  style={[styles.categoryCardText, isSelected && styles.categoryCardTextSelected]}
+                <View
+                  style={[
+                    styles.categoryIconContainer,
+                    isSelected && styles.categoryIconContainerSelected,
+                  ]}
                 >
-                  {item.label}
-                </Text>
+                  <Text style={styles.categoryIconText}>{item.icon}</Text>
+                </View>
+                <View style={styles.categoryTextCol}>
+                  <Text
+                    style={[
+                      styles.categoryTitle,
+                      isSelected && styles.categoryTitleSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {item.title}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.categorySubtitle,
+                      isSelected && styles.categorySubtitleSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {item.subtitle}
+                  </Text>
+                </View>
               </TouchableOpacity>
             );
           })}
         </View>
 
-        {/* Issue Title & Description */}
-        <Input
-          label="Issue Title"
-          placeholder="e.g. Broken water pipeline on Main Road"
-          value={title}
-          onChangeText={setTitle}
-          error={titleError}
-          maxLength={120}
-        />
-
-        <Input
-          label="Detailed Description"
-          placeholder="Describe the issue, hazards, and exact public surroundings..."
-          value={description}
-          onChangeText={setDescription}
-          error={descriptionError}
-          multiline
-          numberOfLines={4}
-          style={styles.textArea}
-          maxLength={2000}
-        />
-
-        {/* Section: Andhra Pradesh Jurisdiction & Location Selector */}
-        <View style={styles.locationSectionHeader}>
-          <Text style={styles.sectionLabel}>Location & Administrative Jurisdiction</Text>
-          {/* Locked State Badge */}
-          <View style={styles.stateLockedBadge}>
-            <Text style={styles.lockIcon}>🔒</Text>
-            <Text style={styles.stateLockedText}>State: {lockedStateName}</Text>
+        {/* 3. ISSUE TITLE */}
+        <View style={styles.fieldSection}>
+          <View style={styles.fieldHeaderRow}>
+            <Text style={styles.sectionHeadingText}>ISSUE TITLE</Text>
+            <Text style={styles.requiredAsterisk}> *</Text>
           </View>
+          <View style={[styles.textInputWrapper, titleError ? styles.inputErrorBorder : null]}>
+            <TextInput
+              style={styles.singleLineInput}
+              value={title}
+              onChangeText={(text) => {
+                setTitle(text);
+                if (titleError) setTitleError('');
+              }}
+              placeholder="e.g. Deep road pothole causing traffic slowdown"
+              placeholderTextColor="#94A3B8"
+              maxLength={120}
+            />
+          </View>
+          {titleError ? <Text style={styles.errorInlineText}>{titleError}</Text> : null}
         </View>
 
-        <View style={styles.locationContainer}>
-          {/* Device GPS Row */}
-          <View style={styles.gpsRow}>
-            <View style={styles.gpsInfoCol}>
-              <Text style={styles.gpsStatusTitle}>
-                {hasGpsLocation ? '📍 GPS Position Verified' : '📍 Device GPS'}
-              </Text>
-              <Text style={styles.gpsStatusSubtitle}>
-                {locationResolutionStatus || 'Not acquired yet. Tap button to detect GPS in AP.'}
+        {/* 4. DETAILED DESCRIPTION */}
+        <View style={styles.fieldSection}>
+          <View style={styles.fieldHeaderRowWithCounter}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={styles.sectionHeadingText}>DETAILED DESCRIPTION</Text>
+              <Text style={styles.requiredAsterisk}> *</Text>
+            </View>
+            <Text style={styles.charCounterHint}>Min. 20 chars</Text>
+          </View>
+          <View style={[styles.textAreaWrapper, descriptionError ? styles.inputErrorBorder : null]}>
+            <TextInput
+              style={styles.multilineInput}
+              value={description}
+              onChangeText={(text) => {
+                setDescription(text);
+                if (descriptionError) setDescriptionError('');
+              }}
+              placeholder="Describe the issue, hazards, and exact public surroundings..."
+              placeholderTextColor="#94A3B8"
+              multiline
+              numberOfLines={4}
+              maxLength={2000}
+            />
+          </View>
+          {descriptionError ? <Text style={styles.errorInlineText}>{descriptionError}</Text> : null}
+        </View>
+
+        {/* 5. VERIFIED DEVICE GPS CARD */}
+        <View style={styles.verifiedGpsCard}>
+          <View style={styles.verifiedGpsHeaderRow}>
+            <View style={styles.verifiedGpsHeaderLeft}>
+              <Text style={styles.shieldGreenIcon}>🛡️</Text>
+              <Text style={styles.verifiedGpsTitle}>VERIFIED DEVICE GPS</Text>
+            </View>
+            <View style={styles.gpsLockedBadge}>
+              <Text style={styles.gpsLockedText}>GPS Locked</Text>
+            </View>
+          </View>
+
+          {/* GPS coordinates inner box */}
+          <View style={styles.gpsInnerBox}>
+            <View style={styles.gpsInnerLeft}>
+              <View style={styles.gpsLocationRow}>
+                <View style={styles.greenLocationDot} />
+                <Text style={styles.gpsCityTitle}>Guntur, Andhra Pradesh</Text>
+              </View>
+              <Text style={styles.gpsCoordsText}>
+                {reporterLat}° N, {reporterLng}° E • Accuracy: {accuracyStr}m
               </Text>
             </View>
 
-            <View style={{ flexDirection: 'row', gap: spacing.xs, alignItems: 'center' }}>
-              {hasGpsLocation && (
-                <TouchableOpacity
-                  onPress={() => {
-                    setHasGpsLocation(false);
-                    setCoordinates(
-                      selectedLocality
-                        ? [selectedLocality.coordinate.longitude, selectedLocality.coordinate.latitude]
-                        : selectedMandal
-                        ? [selectedMandal.center.longitude, selectedMandal.center.latitude]
-                        : selectedDistrict
-                        ? [selectedDistrict.center.longitude, selectedDistrict.center.latitude]
-                        : null
-                    );
-                    setLocationResolutionStatus(null);
-                  }}
-                  style={styles.clearGpsBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Clear GPS"
-                >
-                  <Text style={styles.clearGpsText}>Clear</Text>
-                </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.reverifyBtn}
+              onPress={handleVerifyCurrentLocation}
+              disabled={isVerifyingCurrentGps}
+              activeOpacity={0.8}
+            >
+              {isVerifyingCurrentGps ? (
+                <ActivityIndicator size="small" color="#2563EB" />
+              ) : (
+                <>
+                  <Text style={styles.reverifyBtnText}>Re-</Text>
+                  <Text style={styles.reverifyBtnText}>verify</Text>
+                </>
               )}
-              <Button
-                title={isLocating ? 'Locating...' : hasGpsLocation ? 'Update GPS' : 'Use Current GPS'}
-                onPress={handleAcquireLocation}
-                variant="outline"
-                size="sm"
-                loading={isLocating}
+            </TouchableOpacity>
+          </View>
+
+          {currentLocationMsg ? (
+            <Text style={styles.gpsSuccessText}>{currentLocationMsg}</Text>
+          ) : null}
+
+          {currentLocationError ? (
+            <Text style={styles.gpsErrorText}>{currentLocationError}</Text>
+          ) : null}
+
+          <Text style={styles.gpsDisclaimerText}>
+            CivicPulse validates real-time device coordinates inside Andhra Pradesh to guarantee authenticity and eliminate spam dispatches.
+          </Text>
+        </View>
+
+        {/* 6. ISSUE INCIDENT LOCATION CARD */}
+        <View style={styles.incidentLocationCard}>
+          <View style={styles.incidentHeaderRow}>
+            <View style={styles.incidentHeaderLeft}>
+              <Text style={styles.incidentSectionTitle}>ISSUE INCIDENT LOCATION</Text>
+              <Text style={styles.incidentSectionSubtitle}>Where the civic issue physically exists</Text>
+            </View>
+            <View style={styles.apJurisdictionBadge}>
+              <Text style={styles.lockIconMini}>🔒</Text>
+              <View>
+                <Text style={styles.apJurisdictionText}>AP Jurisdiction</Text>
+                <Text style={styles.apJurisdictionSub}>Only</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Sync with Current Verified GPS Button */}
+          <TouchableOpacity
+            style={styles.syncGpsButton}
+            onPress={handleUseCurrentGpsForIssue}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.syncPinIcon}>📍</Text>
+            <Text style={styles.syncGpsButtonText}>Sync with Current Verified GPS</Text>
+          </TouchableOpacity>
+
+          {issueLocationError ? (
+            <Text style={styles.issueLocationErrorText}>{issueLocationError}</Text>
+          ) : null}
+
+          {/* District Dropdown field */}
+          <View style={styles.dropdownField}>
+            <View style={styles.dropdownLabelRow}>
+              <Text style={styles.dropdownFieldLabel}>District</Text>
+              <Text style={styles.dropdownFieldCount}>26 Districts of AP</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.dropdownSelector}
+              onPress={() => {
+                setShowDistrictPicker(!showDistrictPicker);
+                setShowMandalPicker(false);
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.dropdownSelectorValue}>
+                {selectedDistrict ? selectedDistrict.name : 'Select District'}
+              </Text>
+              <Text style={styles.dropdownArrow}>⌄</Text>
+            </TouchableOpacity>
+
+            {showDistrictPicker && (
+              <View style={styles.pickerExpandedList}>
+                <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                  {AP_DISTRICTS_DATA.map((dist) => (
+                    <TouchableOpacity
+                      key={dist.id}
+                      style={[
+                        styles.pickerItem,
+                        selectedDistrict?.id === dist.id && styles.pickerItemActive,
+                      ]}
+                      onPress={() => handleSelectDistrict(dist)}
+                    >
+                      <Text
+                        style={[
+                          styles.pickerItemText,
+                          selectedDistrict?.id === dist.id && styles.pickerItemTextActive,
+                        ]}
+                      >
+                        {dist.name}
+                      </Text>
+                      <Text style={styles.pickerItemRegion}>{dist.region}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </View>
+
+          {/* Municipality / Mandal Dropdown field */}
+          <View style={styles.dropdownField}>
+            <Text style={styles.dropdownFieldLabel}>Municipality / Mandal</Text>
+            <TouchableOpacity
+              style={styles.dropdownSelector}
+              onPress={() => {
+                if (selectedDistrict) {
+                  setShowMandalPicker(!showMandalPicker);
+                  setShowDistrictPicker(false);
+                }
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.dropdownSelectorValue}>
+                {selectedMandal
+                  ? selectedMandal.name === 'Guntur' || selectedMandal.name.includes('Corporation')
+                    ? 'Guntur Municipal Corporation (GMC)'
+                    : selectedMandal.name
+                  : 'Select Municipality or Mandal'}
+              </Text>
+              <Text style={styles.dropdownArrow}>⌄</Text>
+            </TouchableOpacity>
+
+            {showMandalPicker && selectedDistrict && (
+              <View style={styles.pickerExpandedList}>
+                <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
+                  {selectedDistrict.mandals.map((mandal) => (
+                    <TouchableOpacity
+                      key={mandal.id}
+                      style={[
+                        styles.pickerItem,
+                        selectedMandal?.id === mandal.id && styles.pickerItemActive,
+                      ]}
+                      onPress={() => handleSelectMandal(mandal)}
+                    >
+                      <Text
+                        style={[
+                          styles.pickerItemText,
+                          selectedMandal?.id === mandal.id && styles.pickerItemTextActive,
+                        ]}
+                      >
+                        {mandal.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </View>
+
+          {/* Specific Landmark or Street Address field */}
+          <View style={styles.dropdownField}>
+            <Text style={styles.dropdownFieldLabel}>Specific Landmark or Street Address</Text>
+            <View style={styles.landmarkInputWrapper}>
+              <TextInput
+                style={styles.landmarkTextInput}
+                value={landmarkDetails}
+                onChangeText={setLandmarkDetails}
+                placeholder="e.g. Old Club Road, Near Arundelpet 3rd Line Junction"
+                placeholderTextColor="#94A3B8"
+                maxLength={255}
               />
             </View>
           </View>
-
-          {/* Location error message */}
-          {locationError ? (
-            <View style={styles.locationErrorBox}>
-              <Text style={styles.locationErrorText}>{locationError}</Text>
-              {gpsEligibility === GpsEligibilityStatus.OUTSIDE_AP && (
-                <TouchableOpacity
-                  onPress={handleResetGpsCheck}
-                  style={styles.resetGpsBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Reset GPS Check"
-                >
-                  <Text style={styles.resetGpsText}>🔄 Re-check / Reset GPS</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : null}
-
-          {/* 1. District Selector */}
-          <Text style={styles.hierarchyLabel}>District (28 Districts of Andhra Pradesh)</Text>
-          <TouchableOpacity
-            style={styles.selectorDropdownButton}
-            onPress={() => setShowDistrictPicker(!showDistrictPicker)}
-            accessibilityRole="button"
-            accessibilityLabel="Select District"
-          >
-            <Text style={selectedDistrict ? styles.selectorTextSelected : styles.selectorTextPlaceholder}>
-              {selectedDistrict ? `${selectedDistrict.name} (${selectedDistrict.region})` : 'Select District...'}
-            </Text>
-            <Text style={styles.dropdownChevron}>{showDistrictPicker ? '▲' : '▼'}</Text>
-          </TouchableOpacity>
-
-          {showDistrictPicker && (
-            <View style={styles.dropdownListContainer}>
-              <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled>
-                {AP_DISTRICTS_DATA.map((dist) => (
-                  <TouchableOpacity
-                    key={dist.id}
-                    style={[
-                      styles.dropdownListItem,
-                      selectedDistrict?.id === dist.id && styles.dropdownListItemActive,
-                    ]}
-                    onPress={() => handleSelectDistrict(dist)}
-                  >
-                    <Text
-                      style={[
-                        styles.dropdownListItemText,
-                        selectedDistrict?.id === dist.id && styles.dropdownListItemTextActive,
-                      ]}
-                    >
-                      {dist.name}
-                    </Text>
-                    <Text style={styles.dropdownListItemSub}>{dist.region}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-
-          {/* 2. Mandal Selector (Appears once district is selected) */}
-          {selectedDistrict && (
-            <>
-              <Text style={styles.hierarchyLabel}>Mandal ({selectedDistrict.name} District)</Text>
-              <TouchableOpacity
-                style={styles.selectorDropdownButton}
-                onPress={() => setShowMandalPicker(!showMandalPicker)}
-                accessibilityRole="button"
-                accessibilityLabel="Select Mandal"
-              >
-                <Text style={selectedMandal ? styles.selectorTextSelected : styles.selectorTextPlaceholder}>
-                  {selectedMandal ? selectedMandal.name : 'Select Mandal...'}
-                </Text>
-                <Text style={styles.dropdownChevron}>{showMandalPicker ? '▲' : '▼'}</Text>
-              </TouchableOpacity>
-
-              {showMandalPicker && (
-                <View style={styles.dropdownListContainer}>
-                  <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled>
-                    {selectedDistrict.mandals.map((mandal) => (
-                      <TouchableOpacity
-                        key={mandal.id}
-                        style={[
-                          styles.dropdownListItem,
-                          selectedMandal?.id === mandal.id && styles.dropdownListItemActive,
-                        ]}
-                        onPress={() => handleSelectMandal(mandal)}
-                      >
-                        <Text
-                          style={[
-                            styles.dropdownListItemText,
-                            selectedMandal?.id === mandal.id && styles.dropdownListItemTextActive,
-                          ]}
-                        >
-                          {mandal.name}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-            </>
-          )}
-
-          {/* 3. Locality / Landmark Selector (Appears once mandal is selected) */}
-          {selectedMandal && (
-            <>
-              <Text style={styles.hierarchyLabel}>Town / Locality ({selectedMandal.name})</Text>
-              <TouchableOpacity
-                style={styles.selectorDropdownButton}
-                onPress={() => setShowLocalityPicker(!showLocalityPicker)}
-                accessibilityRole="button"
-                accessibilityLabel="Select Locality"
-              >
-                <Text style={selectedLocality ? styles.selectorTextSelected : styles.selectorTextPlaceholder}>
-                  {selectedLocality ? selectedLocality.name : 'Choose Town or Locality...'}
-                </Text>
-                <Text style={styles.dropdownChevron}>{showLocalityPicker ? '▲' : '▼'}</Text>
-              </TouchableOpacity>
-
-              {showLocalityPicker && (
-                <View style={styles.dropdownListContainer}>
-                  <View style={styles.searchBarContainer}>
-                    <TextInput
-                      style={styles.searchBarInput}
-                      placeholder="Search localities in mandal..."
-                      placeholderTextColor={colors.textMuted}
-                      value={localitySearchText}
-                      onChangeText={setLocalitySearchText}
-                    />
-                  </View>
-                  <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled>
-                    {filteredLocalities.map((loc) => (
-                      <TouchableOpacity
-                        key={loc.id}
-                        style={[
-                          styles.dropdownListItem,
-                          selectedLocality?.id === loc.id && styles.dropdownListItemActive,
-                        ]}
-                        onPress={() => handleSelectLocality(loc)}
-                      >
-                        <Text
-                          style={[
-                            styles.dropdownListItemText,
-                            selectedLocality?.id === loc.id && styles.dropdownListItemTextActive,
-                          ]}
-                        >
-                          {loc.name}
-                        </Text>
-                        <Text style={styles.dropdownListItemSub}>{loc.type}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-            </>
-          )}
-
-          {/* 4. Landmark Free-text details */}
-          <Text style={styles.hierarchyLabel}>Specific Landmark / Street Details (Optional)</Text>
-          <Input
-            placeholder="e.g. Near Government High School gate or Opposite Water Tank"
-            value={landmarkDetails}
-            onChangeText={setLandmarkDetails}
-            maxLength={255}
-          />
         </View>
 
-        {/* Submission Progress Indicator */}
+        {/* Submission Step Indicator if Submitting */}
         {isSubmitting && submissionStep && (
-          <View style={styles.progressContainer}>
-            <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={styles.progressText}>{submissionStep}</Text>
+          <View style={styles.submittingIndicatorRow}>
+            <ActivityIndicator size="small" color="#2563EB" />
+            <Text style={styles.submittingIndicatorText}>{submissionStep}</Text>
           </View>
         )}
 
-        {/* Submit Actions */}
+        {/* 7. SUBMIT CIVIC REPORT BUTTON & DISCLAIMER */}
         <View style={styles.submitSection}>
-          <Button
-            title={isSubmitting ? 'Submitting Report...' : 'Submit Civic Report'}
-            onPress={handleSubmit}
-            loading={isSubmitting}
-            disabled={isSubmitting}
-            size="lg"
+          <TouchableOpacity
             style={styles.submitButton}
-          />
-          <Text style={styles.disclaimerText}>
-            CivicPulse validates that all submissions fall strictly within Andhra Pradesh jurisdiction to ensure authentic municipal accountability.
+            onPress={handleSubmit}
+            disabled={isSubmitting}
+            activeOpacity={0.85}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <View style={styles.submitButtonContent}>
+                <Text style={styles.submitButtonText}>Submit Civic Report</Text>
+                <Text style={styles.submitButtonArrow}>→</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          <Text style={styles.bottomLegalDisclaimer}>
+            Authenticated under the AP Citizens Civic Engagement Initiative. False reporting is subject to civic audit.
           </Text>
+
+          {/* Bottom Home Indicator Bar */}
+          <View style={styles.homeIndicator} />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -844,366 +984,728 @@ export const CreateReportScreen: React.FC<CreateReportScreenProps> = ({
 const styles = StyleSheet.create({
   screenContainer: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#F8FAFC',
   },
-  scrollContent: {
-    padding: spacing.lg,
-    paddingBottom: spacing.hero,
-  },
-  navBar: {
+  topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing.md,
-    marginBottom: spacing.md,
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 14 : 12,
+    paddingBottom: 14,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
-  backButton: {
-    paddingVertical: spacing.xs,
-  },
-  backButtonText: {
-    color: colors.primary,
-    fontSize: typography.sizes.md,
-    fontWeight: typography.weights.medium,
-  },
-  navTitle: {
-    fontSize: typography.sizes.lg,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
-  },
-  sectionLabel: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
-    marginBottom: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  attachedPhotoContainer: {
+  backBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.cardBackground,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.sm,
-    marginBottom: spacing.md,
-    gap: spacing.sm,
   },
-  attachedPhotoThumbnail: {
+  backChevron: {
+    fontSize: 24,
+    color: '#2563EB',
+    fontWeight: '300',
+    marginRight: 2,
+    lineHeight: 24,
+  },
+  backText: {
+    fontSize: 16,
+    color: '#2563EB',
+    fontWeight: '500',
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  apPortalBadge: {
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  apPortalBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#059669',
+    letterSpacing: 0.5,
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 40,
+  },
+
+  // Photo Card
+  photoCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 20,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  photoHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  photoHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  blueDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#2563EB',
+  },
+  photoSectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.8,
+  },
+  photoHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  fileReadyIcon: {
+    fontSize: 12,
+    color: '#059669',
+  },
+  fileReadyText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  photoContentBox: {
+    flexDirection: 'row',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    gap: 12,
+  },
+  photoThumbnail: {
     width: 60,
     height: 60,
-    borderRadius: radii.sm,
-    backgroundColor: colors.borderSubtle,
+    borderRadius: 10,
   },
-  attachedPhotoMeta: {
+  photoPlaceholderBox: {
+    width: 58,
+    height: 58,
+    borderRadius: 10,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  flagIcon: {
+    fontSize: 22,
+    color: '#FFFFFF',
+  },
+  jpgBadge: {
+    position: 'absolute',
+    bottom: 3,
+    right: 4,
+  },
+  jpgText: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.4,
+  },
+  photoMetaCol: {
     flex: 1,
   },
-  attachedPhotoTitle: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
-  },
-  attachedPhotoSubtitle: {
-    fontSize: typography.sizes.xs,
-    color: colors.success,
-    marginTop: 2,
-  },
-  removeAttachedBtn: {
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-  },
-  removeAttachedText: {
-    fontSize: typography.sizes.xs,
-    color: colors.error,
-    fontWeight: typography.weights.bold,
-  },
-  addPhotoBanner: {
+  photoNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.primaryLight,
-    padding: spacing.md,
-    borderRadius: radii.md,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    gap: spacing.sm,
+    gap: 5,
   },
-  addPhotoIcon: {
-    fontSize: 20,
+  cameraEmoji: {
+    fontSize: 13,
   },
-  addPhotoText: {
-    fontSize: typography.sizes.sm,
-    color: colors.primary,
-    fontWeight: typography.weights.bold,
+  photoFilename: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+    flex: 1,
+  },
+  photoSubMeta: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+    marginBottom: 6,
+  },
+  photoActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  photoActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  replaceIcon: {
+    fontSize: 11,
+  },
+  replaceText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
+  photoActionDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: '#CBD5E1',
+  },
+  removeIcon: {
+    fontSize: 11,
+  },
+  removeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#EF4444',
+  },
+  anglesFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  anglesQuestion: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  addAngleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  addAnglePlus: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+  addAngleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
+
+  // Category Selector
+  categoryHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sectionHeadingText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.6,
+  },
+  requiredAsterisk: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#EF4444',
+  },
+  tapToSelectText: {
+    fontSize: 11,
+    color: '#94A3B8',
   },
   categoryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginHorizontal: -spacing.xs,
-    marginBottom: spacing.lg,
+    gap: 10,
+    marginBottom: 20,
   },
   categoryCard: {
-    width: '47%',
-    margin: '1.5%',
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
-    backgroundColor: colors.cardBackground,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
+    width: '48.5%',
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 8,
   },
   categoryCardSelected: {
-    backgroundColor: colors.primaryLight,
-    borderColor: colors.primary,
+    borderColor: '#3B82F6',
+    borderWidth: 1.5,
+    backgroundColor: '#EFF6FF',
   },
-  categoryCardText: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.medium,
-    color: colors.textPrimary,
-  },
-  categoryCardTextSelected: {
-    color: colors.textInverse,
-    fontWeight: typography.weights.bold,
-  },
-  textArea: {
-    height: 90,
-    textAlignVertical: 'top',
-  },
-  locationSectionHeader: {
-    flexDirection: 'row',
+  categoryIconContainer: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
+    justifyContent: 'center',
   },
-  stateLockedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EEF2FF',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: '#C7D2FE',
-    gap: 4,
+  categoryIconContainerSelected: {
+    backgroundColor: '#2563EB',
   },
-  lockIcon: {
-    fontSize: 12,
+  categoryIconText: {
+    fontSize: 18,
   },
-  stateLockedText: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.bold,
-    color: '#3730A3',
-  },
-  locationContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.lg,
-  },
-  gpsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSubtle,
-    marginBottom: spacing.sm,
-  },
-  gpsInfoCol: {
+  categoryTextCol: {
     flex: 1,
-    marginRight: spacing.sm,
   },
-  gpsStatusTitle: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
+  categoryTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#0F172A',
   },
-  gpsStatusSubtitle: {
-    fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
+  categoryTitleSelected: {
+    color: '#1D4ED8',
+  },
+  categorySubtitle: {
+    fontSize: 10,
+    color: '#64748B',
     marginTop: 2,
   },
-  clearGpsBtn: {
-    paddingHorizontal: spacing.xs,
+  categorySubtitleSelected: {
+    color: '#3B82F6',
   },
-  clearGpsText: {
-    fontSize: typography.sizes.xs,
-    color: colors.error,
-    fontWeight: typography.weights.bold,
+
+  // Form Fields
+  fieldSection: {
+    marginBottom: 18,
   },
-  locationErrorBox: {
-    backgroundColor: colors.errorBackground,
-    padding: spacing.sm,
-    borderRadius: radii.sm,
-    marginBottom: spacing.sm,
-  },
-  locationErrorText: {
-    color: colors.error,
-    fontSize: typography.sizes.xs,
-    lineHeight: 18,
-  },
-  resetGpsBtn: {
-    marginTop: spacing.xs,
-    alignSelf: 'flex-start',
-    backgroundColor: colors.cardBackground,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: radii.sm,
-    borderWidth: 1,
-    borderColor: colors.error,
-  },
-  resetGpsText: {
-    color: colors.error,
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.bold,
-  },
-  hierarchyLabel: {
-    fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.bold,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-    marginBottom: 4,
-  },
-  selectorDropdownButton: {
+  fieldHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 8,
+  },
+  fieldHeaderRowWithCounter: {
+    flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: colors.cardBackground,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  charCounterHint: {
+    fontSize: 11,
+    color: '#94A3B8',
+  },
+  textInputWrapper: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.xs,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
-  selectorTextSelected: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
-    color: colors.textPrimary,
+  singleLineInput: {
+    fontSize: 13.5,
+    color: '#0F172A',
+    fontWeight: '500',
+    padding: 0,
   },
-  selectorTextPlaceholder: {
-    fontSize: typography.sizes.sm,
-    color: colors.textMuted,
+  textAreaWrapper: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 110,
   },
-  dropdownChevron: {
+  multilineInput: {
+    fontSize: 13,
+    color: '#0F172A',
+    lineHeight: 19,
+    textAlignVertical: 'top',
+    padding: 0,
+  },
+  inputErrorBorder: {
+    borderColor: '#EF4444',
+  },
+  errorInlineText: {
+    fontSize: 11,
+    color: '#EF4444',
+    marginTop: 4,
+    marginLeft: 4,
+  },
+
+  // Verified GPS Card
+  verifiedGpsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 20,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  verifiedGpsHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  verifiedGpsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  shieldGreenIcon: {
+    fontSize: 14,
+  },
+  verifiedGpsTitle: {
     fontSize: 12,
-    color: colors.textSecondary,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.6,
   },
-  dropdownListContainer: {
-    backgroundColor: colors.cardBackground,
+  gpsLockedBadge: {
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    marginBottom: spacing.sm,
-    maxHeight: 180,
-    overflow: 'hidden',
+    borderColor: '#A7F3D0',
   },
-  dropdownScrollView: {
-    maxHeight: 180,
+  gpsLockedText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#059669',
   },
-  dropdownListItem: {
+  gpsInnerBox: {
+    flexDirection: 'row',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  gpsInnerLeft: {
+    flex: 1,
+    marginRight: 10,
+  },
+  gpsLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  greenLocationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+  },
+  gpsCityTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  gpsCoordsText: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 4,
+  },
+  reverifyBtn: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reverifyBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2563EB',
+    lineHeight: 13,
+  },
+  gpsErrorText: {
+    fontSize: 11,
+    color: '#EF4444',
+    marginBottom: 6,
+  },
+  gpsSuccessText: {
+    fontSize: 11,
+    color: '#059669',
+    marginBottom: 6,
+    fontWeight: '600',
+  },
+  gpsDisclaimerText: {
+    fontSize: 11,
+    color: '#64748B',
+    lineHeight: 16,
+  },
+
+  // Incident Location Card
+  incidentLocationCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 24,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  incidentHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+  },
+  incidentHeaderLeft: {
+    flex: 1,
+    marginRight: 10,
+  },
+  incidentSectionTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.6,
+  },
+  incidentSectionSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  apJurisdictionBadge: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSubtle,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 4,
   },
-  dropdownListItemActive: {
-    backgroundColor: colors.primaryLight,
+  lockIconMini: {
+    fontSize: 10,
   },
-  dropdownListItemText: {
-    fontSize: typography.sizes.sm,
-    color: colors.textPrimary,
+  apJurisdictionText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: '#2563EB',
   },
-  dropdownListItemTextActive: {
-    fontWeight: typography.weights.bold,
-    color: colors.primary,
+  apJurisdictionSub: {
+    fontSize: 8.5,
+    fontWeight: '700',
+    color: '#2563EB',
   },
-  dropdownListItemSub: {
-    fontSize: typography.sizes.xs,
-    color: colors.textMuted,
-  },
-  searchBarContainer: {
-    padding: spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSubtle,
-    backgroundColor: colors.borderSubtle,
-  },
-  searchBarInput: {
-    backgroundColor: colors.cardBackground,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-    borderRadius: radii.sm,
-    fontSize: typography.sizes.xs,
-    color: colors.textPrimary,
-  },
-  errorBox: {
-    backgroundColor: colors.errorBackground,
-    padding: spacing.md,
-    borderRadius: radii.md,
-    marginBottom: spacing.md,
-  },
-  errorText: {
-    color: colors.error,
-    fontSize: typography.sizes.sm,
-  },
-  duplicateNoticeBox: {
-    backgroundColor: colors.warningBackground,
-    padding: spacing.md,
-    borderRadius: radii.md,
-    marginBottom: spacing.md,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.warning,
-  },
-  duplicateNoticeTitle: {
-    fontSize: typography.sizes.sm,
-    fontWeight: typography.weights.bold,
-    color: colors.warning,
-    marginBottom: spacing.xs,
-  },
-  duplicateNoticeSubtitle: {
-    fontSize: typography.sizes.xs,
-    color: colors.textSecondary,
-    marginBottom: spacing.xs,
-  },
-  duplicateItem: {
-    fontSize: typography.sizes.xs,
-    color: colors.textPrimary,
-    fontWeight: typography.weights.medium,
-    marginVertical: 2,
-  },
-  submitSection: {
-    marginTop: spacing.sm,
-  },
-  submitButton: {
-    backgroundColor: colors.primary,
-  },
-  progressContainer: {
+  syncGpsButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.borderSubtle,
-    padding: spacing.sm,
-    borderRadius: radii.md,
-    marginBottom: spacing.sm,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 12,
+    paddingVertical: 10,
+    marginBottom: 16,
+    gap: 6,
   },
-  progressText: {
-    fontSize: typography.sizes.sm,
-    color: colors.primary,
-    fontWeight: typography.weights.medium,
+  syncPinIcon: {
+    fontSize: 13,
   },
-  disclaimerText: {
-    fontSize: typography.sizes.xs,
-    color: colors.textMuted,
+  syncGpsButtonText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  issueLocationErrorText: {
+    fontSize: 11,
+    color: '#EF4444',
+    marginBottom: 10,
+  },
+  dropdownField: {
+    marginBottom: 14,
+  },
+  dropdownLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  dropdownFieldLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  dropdownFieldCount: {
+    fontSize: 10.5,
+    color: '#94A3B8',
+  },
+  dropdownSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  dropdownSelectorValue: {
+    fontSize: 13,
+    color: '#0F172A',
+    fontWeight: '500',
+  },
+  dropdownArrow: {
+    fontSize: 14,
+    color: '#64748B',
+    fontWeight: '700',
+  },
+  landmarkInputWrapper: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 6,
+  },
+  landmarkTextInput: {
+    fontSize: 13,
+    color: '#0F172A',
+    fontWeight: '500',
+    padding: 0,
+  },
+  pickerExpandedList: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 12,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  pickerItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  pickerItemActive: {
+    backgroundColor: '#EFF6FF',
+  },
+  pickerItemText: {
+    fontSize: 12.5,
+    color: '#1E293B',
+    fontWeight: '500',
+  },
+  pickerItemTextActive: {
+    color: '#2563EB',
+    fontWeight: '700',
+  },
+  pickerItemRegion: {
+    fontSize: 10.5,
+    color: '#94A3B8',
+  },
+
+  // Submit Section
+  submittingIndicatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  submittingIndicatorText: {
+    fontSize: 12,
+    color: '#2563EB',
+    fontWeight: '600',
+  },
+  submitSection: {
+    alignItems: 'center',
+  },
+  submitButton: {
+    backgroundColor: '#2563EB',
+    borderRadius: 14,
+    width: '100%',
+    paddingVertical: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  submitButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  submitButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  submitButtonArrow: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  bottomLegalDisclaimer: {
+    fontSize: 10,
+    color: '#94A3B8',
     textAlign: 'center',
-    marginTop: spacing.md,
-    lineHeight: typography.lineHeights.normal,
+    marginTop: 12,
+    lineHeight: 14,
+    paddingHorizontal: 12,
+  },
+  homeIndicator: {
+    width: 120,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#CBD5E1',
+    marginTop: 20,
+  },
+
+  errorBox: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#EF4444',
   },
 });

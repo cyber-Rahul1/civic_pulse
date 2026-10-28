@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
   ForbiddenException,
   NotFoundException,
+  BadRequestException,
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -21,11 +22,14 @@ import {
   UserProfileDto,
   AuthResponseData,
   AuthTokens,
+  LocationVerificationStatus,
+  VerifiedCurrentLocationDto,
+  resolveLocationFromCoordinates,
 } from '@civic-pulse/contracts';
 import { DatabaseService } from '../database/database.service.js';
 import { TokenService } from './token.service.js';
 import { RevocationRegistryService } from './revocation-registry.service.js';
-import { RegisterDto, LoginDto, RefreshTokenDto } from '../dto/auth.dto.js';
+import { RegisterDto, LoginDto, RefreshTokenDto, VerifyLocationDto } from '../dto/auth.dto.js';
 import {
   UserDocument,
   SessionDocument,
@@ -385,6 +389,104 @@ export class AuthService {
     return this.mapToProfile(updated!);
   }
 
+  async verifyUserLocation(userId: string, dto: VerifyLocationDto): Promise<UserProfileDto> {
+    const user = await this.db.users.findOne({ _id: userId });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.status === AccountStatus.SUSPENDED) {
+      throw new ForbiddenException('Account has been suspended.');
+    }
+
+    // 1. Validate coordinates format and range
+    if (!Array.isArray(dto.coordinates) || dto.coordinates.length !== 2) {
+      throw new BadRequestException('Coordinates must be an array of [longitude, latitude]');
+    }
+
+    const [longitude, latitude] = dto.coordinates;
+    if (
+      typeof longitude !== 'number' ||
+      typeof latitude !== 'number' ||
+      isNaN(longitude) ||
+      isNaN(latitude) ||
+      longitude < -180 ||
+      longitude > 180 ||
+      latitude < -90 ||
+      latitude > 90
+    ) {
+      throw new BadRequestException('Coordinates are out of valid geographic range');
+    }
+
+    // 2. Freshness check: reject fixes older than 10 minutes if client provided a timestamp
+    if (dto.timestamp) {
+      const nowMs = Date.now();
+      const diffMs = Math.abs(nowMs - dto.timestamp);
+      // Allow up to 10 minutes (600,000ms) difference
+      if (diffMs > 600000) {
+        throw new BadRequestException('GPS fix timestamp is stale or invalid');
+      }
+    }
+
+    // 3. Resolve location using authoritative AP geographic data
+    const resolved = resolveLocationFromCoordinates(latitude, longitude, dto.accuracyMeters);
+    const now = new Date();
+
+    let verifiedLocation: VerifiedCurrentLocationDto;
+
+    if (!resolved.isInsideAP) {
+      verifiedLocation = {
+        status: LocationVerificationStatus.OUTSIDE_AP,
+        state: 'Outside Andhra Pradesh',
+        coordinates: [longitude, latitude],
+        accuracyMeters: dto.accuracyMeters,
+        verifiedAt: now.toISOString(),
+        verificationSource: 'GPS_DEVICE',
+      };
+    } else if (dto.accuracyMeters !== undefined && dto.accuracyMeters > 3000) {
+      // Accuracy insufficient to reliably determine location
+      verifiedLocation = {
+        status: LocationVerificationStatus.INACCURATE,
+        state: 'Andhra Pradesh',
+        districtId: resolved.districtId,
+        districtName: resolved.districtName,
+        coordinates: [longitude, latitude],
+        accuracyMeters: dto.accuracyMeters,
+        verifiedAt: now.toISOString(),
+        verificationSource: 'GPS_DEVICE',
+      };
+    } else {
+      verifiedLocation = {
+        status: LocationVerificationStatus.VERIFIED,
+        state: 'Andhra Pradesh',
+        districtId: resolved.districtId,
+        districtName: resolved.districtName,
+        cityOrTown: resolved.cityOrTown,
+        mandalId: resolved.mandalId,
+        mandalName: resolved.mandalName,
+        coordinates: [longitude, latitude],
+        accuracyMeters: dto.accuracyMeters,
+        verifiedAt: now.toISOString(),
+        verificationSource: 'GPS_DEVICE',
+      };
+    }
+
+    await this.db.users.updateOne(
+      { _id: userId },
+      {
+        $set: {
+          verifiedCurrentLocation: verifiedLocation,
+          updatedAt: now,
+        },
+      },
+    );
+
+    this.logger.log(`Updated verified current location for user ${userId}: status=${verifiedLocation.status}, city=${verifiedLocation.cityOrTown}`);
+
+    const updatedUser = await this.db.users.findOne({ _id: userId });
+    return this.mapToProfile(updatedUser!);
+  }
+
   private mapToProfile(user: UserDocument): UserProfileDto {
     return {
       id: user._id,
@@ -395,6 +497,8 @@ export class AuthService {
       emailVerified: user.emailVerified,
       createdAt: user.createdAt.toISOString(),
       lastLoginAt: user.lastLoginAt?.toISOString(),
+      verifiedCurrentLocation: user.verifiedCurrentLocation,
     };
   }
 }
+

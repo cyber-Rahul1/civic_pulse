@@ -36,6 +36,7 @@ import {
   ProfileClaimRequestDto,
   RepresentativeImportSummaryDto,
   ProfileClaimStatus,
+  ReportRepresentativeAssociationDto,
 } from '@civic-pulse/contracts';
 import { AuthorityService } from './authority.service.js';
 import {
@@ -342,6 +343,15 @@ export class AuthorityController {
     @Param('reportId') reportId: string,
   ): Promise<ResolutionEvidenceDto[]> {
     return this.authorityService.getReportEvidence(reportId);
+  }
+
+  @Public()
+  @Get('reports/:reportId/representatives')
+  @ApiOperation({ summary: 'Get associated elected representatives for a report' })
+  async getReportRepresentatives(
+    @Param('reportId') reportId: string,
+  ): Promise<ReportRepresentativeAssociationDto[]> {
+    return this.authorityService.getReportAssociations(reportId);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)

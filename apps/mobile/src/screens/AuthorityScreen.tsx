@@ -6,11 +6,11 @@ import {
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
-  ActivityIndicator,
 } from 'react-native';
 import { ReportAssignmentDto } from '@civic-pulse/contracts';
 import { apiClient } from '../api/api-client';
 import { EmptyState, ErrorState } from '../components/FeedbackStates';
+import { SkeletonReportCard } from '../components/ShimmerSkeleton';
 import { colors, radii, spacing, typography } from '../theme/tokens';
 
 interface AuthorityScreenProps {
@@ -104,9 +104,10 @@ export const AuthorityScreen: React.FC<AuthorityScreenProps> = ({
       </View>
 
       {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading assigned reports...</Text>
+        <View style={styles.skeletonContainer}>
+          <SkeletonReportCard />
+          <SkeletonReportCard />
+          <SkeletonReportCard />
         </View>
       ) : error ? (
         <ErrorState
@@ -145,10 +146,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.cardBackground,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: colors.borderSubtle,
   },
   backButton: {
     paddingVertical: spacing.xs,
@@ -156,7 +158,7 @@ const styles = StyleSheet.create({
   backButtonText: {
     color: colors.primary,
     fontSize: typography.sizes.md,
-    fontWeight: typography.weights.medium,
+    fontWeight: typography.weights.semibold,
   },
   navTitle: {
     fontSize: typography.sizes.lg,
@@ -166,10 +168,10 @@ const styles = StyleSheet.create({
   noticeBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.secondaryLight,
+    backgroundColor: colors.primaryLight,
     padding: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.secondary,
+    borderBottomColor: '#D4E2FC',
   },
   noticeIcon: {
     fontSize: 24,
@@ -181,23 +183,30 @@ const styles = StyleSheet.create({
   noticeTitle: {
     fontSize: typography.sizes.sm,
     fontWeight: typography.weights.bold,
-    color: colors.primaryDark,
+    color: colors.primary,
   },
   noticeSubtitle: {
     fontSize: typography.sizes.xs,
     color: colors.textSecondary,
+    lineHeight: 16,
+    marginTop: 2,
   },
   listContent: {
     padding: spacing.md,
     paddingBottom: spacing.hero,
   },
   assignmentCard: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
     padding: spacing.md,
     marginBottom: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -213,8 +222,10 @@ const styles = StyleSheet.create({
   statusBadge: {
     fontSize: typography.sizes.xs,
     fontWeight: typography.weights.semibold,
-    color: colors.secondary,
-    backgroundColor: colors.secondaryLight,
+    color: colors.action,
+    backgroundColor: '#EDFDF5',
+    borderWidth: 1,
+    borderColor: '#B9F1D4',
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: radii.pill,
@@ -245,7 +256,7 @@ const styles = StyleSheet.create({
   },
   viewLink: {
     fontSize: typography.sizes.xs,
-    fontWeight: typography.weights.semibold,
+    fontWeight: typography.weights.bold,
     color: colors.primary,
   },
   loadingContainer: {
@@ -257,5 +268,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     color: colors.textSecondary,
     fontSize: typography.sizes.sm,
+  },
+  skeletonContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
   },
 });
